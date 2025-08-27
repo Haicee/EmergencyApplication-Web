@@ -289,6 +289,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 streetAddress: stationData['streetAddress'] ?? stationData['address'] ?? '',
                 city: stationData['city'] ?? '',
                 region: stationData['region'] ?? '',
+                latitude: double.tryParse(stationData['latitude']?.toString() ?? '0.0') ?? 0.0,
+                longitude: double.tryParse(stationData['longitude']?.toString() ?? '0.0') ?? 0.0,
               );
               loadedStations.add(station);
             }

@@ -5,6 +5,8 @@ class Station {
   final String streetAddress;
   final String city;
   final String region;
+  final double latitude;
+  final double longitude;
 
   Station({
     required this.id,
@@ -13,6 +15,8 @@ class Station {
     required this.streetAddress,
     required this.city,
     required this.region,
+    required this.latitude,
+    required this.longitude,
   });
 
   factory Station.fromMap(String id, Map<dynamic, dynamic> map) {
@@ -23,6 +27,8 @@ class Station {
       streetAddress: map['streetAddress'] ?? '',
       city: map['city'] ?? '',
       region: map['region'] ?? '',
+      latitude: double.tryParse(map['latitude']?.toString() ?? '0.0') ?? 0.0,
+      longitude: double.tryParse(map['longitude']?.toString() ?? '0.0') ?? 0.0,
     );
   }
 

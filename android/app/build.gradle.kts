@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "com.example.new_emergency"
     compileSdk = 35
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.1.13356709"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

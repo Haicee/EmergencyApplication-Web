@@ -5,7 +5,9 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_core/firebase_core.dart'; 
 import 'package:permission_handler/permission_handler.dart'; // remove ra ni dol pag di na kaylangan
 import 'utils/agora_config.dart'; // Import Agora configuration
-
+import 'screens/map_screen.dart'; // Import MapScreen
+import 'package:geolocator/geolocator.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
 // EmergencyCallScreen is the citizen's in-call UI during an emergency call.
 // TODO: Add Agora integration for real voice call functionality (join/leave channel, mute, end call, etc.)
@@ -35,18 +37,57 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
   bool _joined = false;
   bool _muted = false;
   bool _speakerEnabled = false;
-  // TODO: Add Agora engine instance and mute state here
+  LatLng? _citizenLocation;
+  LatLng? _stationLocation;
 
   @override
   void initState() {
     super.initState();
     _initAgora(); // call tis to set up agora
+    _getLocations();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         _seconds++;
       });
     });
     // TODO: Initialize Agora engine and join channel here
+  }
+
+  Future<void> _getLocations() async {
+    // Get citizen's current location
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      if (mounted) {
+        setState(() {
+          _citizenLocation = LatLng(position.latitude, position.longitude);
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to get citizen location: $e');
+    }
+
+    // Get station's location from Firebase
+    try {
+      final dbRef = FirebaseDatabase.instance.ref();
+      final snapshot = await dbRef.child('Desk Officer/${widget.station}').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final stationData = Map<String, dynamic>.from(snapshot.value as Map);
+        final lat = double.tryParse(stationData['latitude']?.toString() ?? '');
+        final lon = double.tryParse(stationData['longitude']?.toString() ?? '');
+
+        if (lat != null && lon != null) {
+          if (mounted) {
+            setState(() {
+              _stationLocation = LatLng(lat, lon);
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to get station location: $e');
+    }
   }
 
   Future<void> _handlePermissions() async {
@@ -290,7 +331,25 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
                           icon: Icons.location_on,
                           label: 'Location',
                           color: const Color.fromARGB(255, 85, 85, 85),
-                          onTap: () {},
+                          onTap: () {
+                            if (_citizenLocation != null && _stationLocation != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => MapScreen(
+                                    citizenLocation: _citizenLocation,
+                                    stationLocation: _stationLocation,
+                                  ),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Location data is not yet available.'),
+                                ),
+                              );
+                            }
+                          },
                         ),
                         _ActionButton(
                           icon: Icons.message,

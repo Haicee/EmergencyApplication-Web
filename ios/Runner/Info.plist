@@ -47,7 +47,18 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
     <string>This app needs camera access for video calls during emergencies.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
+    
+    <!-- Location Permissions -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>We need your location to show your position on the map during emergencies.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>We need your location to show your position on the map during emergencies, even when the app is in the background.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>We need your location to show your position on the map during emergencies, even when the app is in the background.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>We need your location to show your position on the map during emergencies.</string>
+    
+    <key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs access to location when open.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>This app needs access to location when in the background.</string>

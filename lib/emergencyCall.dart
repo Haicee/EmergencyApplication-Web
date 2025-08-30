@@ -3,11 +3,12 @@ import 'dart:async';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_core/firebase_core.dart'; 
-import 'package:permission_handler/permission_handler.dart'; // remove ra ni dol pag di na kaylangan
-import 'utils/agora_config.dart'; // Import Agora configuration
-import 'screens/map_screen.dart'; // Import MapScreen
-import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:geolocator/geolocator.dart';
+import 'utils/agora_config.dart';
+import '../screens/map_screen.dart';
+import '../models/station.dart';
 
 // EmergencyCallScreen is the citizen's in-call UI during an emergency call.
 // TODO: Add Agora integration for real voice call functionality (join/leave channel, mute, end call, etc.)
@@ -39,12 +40,14 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
   bool _speakerEnabled = false;
   LatLng? _citizenLocation;
   LatLng? _stationLocation;
+  List<Station> _allStations = [];
 
   @override
   void initState() {
     super.initState();
     _initAgora(); // call tis to set up agora
     _getLocations();
+    _fetchAllStations();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         _seconds++;
@@ -87,6 +90,26 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
       }
     } catch (e) {
       debugPrint('Failed to get station location: $e');
+    }
+  }
+
+  Future<void> _fetchAllStations() async {
+    try {
+      final dbRef = FirebaseDatabase.instance.ref('PoliceStations');
+      final snapshot = await dbRef.get();
+      if (snapshot.exists && snapshot.value != null) {
+        final stationsData = Map<String, dynamic>.from(snapshot.value as Map);
+        final stations = stationsData.entries.map((entry) {
+          return Station.fromMap(entry.key, Map<String, dynamic>.from(entry.value as Map));
+        }).toList();
+        if (mounted) {
+          setState(() {
+            _allStations = stations;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch all stations: $e');
     }
   }
 
@@ -337,15 +360,14 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => MapScreen(
-                                    citizenLocation: _citizenLocation,
-                                    stationLocation: _stationLocation,
+                                    stations: _allStations,
                                   ),
                                 ),
                               );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Location data is not yet available.'),
+                                  content: Text('Locating data...'),
                                 ),
                               );
                             }

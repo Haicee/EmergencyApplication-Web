@@ -1,116 +1,148 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geofencing_api/geofencing_api.dart' hide LatLng;
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
-import 'dart:typed_data';
-import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
+import '../models/station.dart';
+import '../services/geofence_manager.dart';
+import '../utils/circle_polygon.dart';
 
 class MapScreen extends StatefulWidget {
-  final LatLng? stationLocation;
-  final LatLng? citizenLocation;
+  final List<Station> stations;
 
-  const MapScreen({Key? key, this.stationLocation, this.citizenLocation}) : super(key: key);
+  const MapScreen({Key? key, required this.stations}) : super(key: key);
 
   @override
   _MapScreenState createState() => _MapScreenState();
 }
 
 class _MapScreenState extends State<MapScreen> {
-  MaplibreMapController? _mapController;
-  LatLng? _currentLocation;
-  bool _isLoading = true;
-  final LatLng _defaultLocation = const LatLng(14.5995, 120.9842); // Manila
+  final GeofenceManager _geofenceManager = GeofenceManager();
+  StreamSubscription<GeofenceRegion>? _geofenceSubscription;
+  MapLibreMapController? _mapController;
+  Position? _currentPosition;
 
   @override
   void initState() {
     super.initState();
-    _initLocation();
+    _initializeGeofencing();
+    _getCurrentLocation();
   }
 
-  Future<void> _initLocation() async {
-    final status = await Permission.location.status;
-    if (status.isDenied) {
-      final result = await Permission.location.request();
-      if (result.isDenied) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location permission is required to show the map.'),
-            ),
-          );
+  Future<void> _initializeGeofencing() async {
+    bool permissionsGranted = await _geofenceManager.requestPermissions();
+    if (permissionsGranted) {
+      _geofenceManager.startGeofencing(widget.stations);
+      _geofenceSubscription = _geofenceManager.geofenceStream.listen((region) {
+        final station = _findStationById(region.id);
+        if (station != null) {
+          _showGeofenceEnteredDialog(station);
         }
-        setState(() {
-          _isLoading = false;
-          _currentLocation = _defaultLocation;
-        });
-        return;
-      }
+      });
     }
+  }
 
+  Future<void> _getCurrentLocation() async {
     try {
       Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      setState(() {
-        _currentLocation = LatLng(position.latitude, position.longitude);
-        _isLoading = false;
-      });
-      
-      if (_mapController != null) {
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentLocation!, 14.0),
-        );
-        // Marker is now added in _onMapCreated to avoid duplicates
+          desiredAccuracy: LocationAccuracy.high);
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+          _mapController?.animateCamera(CameraUpdate.newLatLngZoom(
+              LatLng(position.latitude, position.longitude), 15.0));
+        });
       }
     } catch (e) {
-      setState(() {
-        _currentLocation = _defaultLocation;
-        _isLoading = false;
-      });
+      debugPrint('Error getting location: $e');
     }
   }
 
-  void _onMapCreated(MaplibreMapController controller) async {
+  Future<void> _onMapCreated(MapLibreMapController controller) async {
     _mapController = controller;
-    await _addPinImage();
+    await station_Pin(controller);
 
-    
+    for (var station in widget.stations) {
+      // Add station pin
+      controller.addSymbol(SymbolOptions(
+        geometry: LatLng(station.latitude, station.longitude),
+        iconImage: 'station_pin',
+        iconSize: 0.2, // Adjust size as needed
+      ));
 
-    if (widget.stationLocation != null) {
-      _addStationMarker(widget.stationLocation!); // Add station marker
+      // Add geofence circle polygon
+      final circlePolygon = createCirclePolygon(
+        LatLng(station.latitude, station.longitude),
+        station.radius,
+      );
+
+      controller.addFill(
+        FillOptions(
+          geometry: [circlePolygon],
+          fillColor: '#FF0000',
+          fillOpacity: 0.3,
+        ),
+      );
+    }
+    if (_currentPosition != null) {
+       controller.animateCamera(CameraUpdate.newLatLngZoom(
+              LatLng(_currentPosition!.latitude, _currentPosition!.longitude), 15.0));
     }
   }
 
-  Future<void> _addPinImage() async {
+  Future<void> station_Pin(MapLibreMapController controller) async {
     final ByteData byteData = await rootBundle.load('assets/images/Pin - Copy.png');
-    final Uint8List uint8List = byteData.buffer.asUint8List();
-    await _mapController?.addImage('pin_icon', uint8List);
+    final Uint8List bytes = byteData.buffer.asUint8List();
+    return controller.addImage('station_pin', bytes);
   }
 
-  void _addStationMarker(LatLng stationLocation) {
-    _mapController?.addSymbol(
-      SymbolOptions(
-        geometry: stationLocation,
-        iconImage: 'pin_icon',
-        iconSize: 0.2, // Adjust size as needed
+  Station? _findStationById(String id) {
+    try {
+      return widget.stations.firstWhere((s) => s.id == id);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  void _showGeofenceEnteredDialog(Station station) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Geofence Entered'),
+        content: Text('You have entered the area for ${station.name}.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
   
   void _onMyLocationPressed() {
-    if (_currentLocation != null) {
+    if (_currentPosition != null) {
       _mapController?.animateCamera(
-        CameraUpdate.newLatLngZoom(_currentLocation!, 14.0),
+        CameraUpdate.newLatLngZoom(LatLng(_currentPosition!.latitude, _currentPosition!.longitude), 14.0),
       );
     }
+  }
+
+
+  @override
+  void dispose() {
+    _geofenceSubscription?.cancel();
+    _geofenceManager.dispose();
+    _mapController?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Current Location'),
+        title: const Text('Police Stations Map'),
         actions: [
           IconButton(
             icon: const Icon(Icons.my_location),
@@ -118,23 +150,18 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : MaplibreMap(
-              styleString: 'https://api.maptiler.com/maps/streets-v2/style.json?key=VhMngqsXGbpDhosqRB2c',
-              initialCameraPosition: CameraPosition(
-                target: widget.citizenLocation ?? _currentLocation ?? _defaultLocation,
-                zoom: 14.0,
-              ),
-              onMapCreated: _onMapCreated,
-              myLocationEnabled: true,
-            ),
+      body: MapLibreMap(
+        onMapCreated: _onMapCreated,
+        initialCameraPosition: CameraPosition(
+          target: _currentPosition != null
+              ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
+              : const LatLng(12.8797, 121.7740), // Philippines center
+          zoom: _currentPosition != null ? 15.0 : 5.0,
+        ),
+        styleString: 'https://api.maptiler.com/maps/streets-v2/style.json?key=VhMngqsXGbpDhosqRB2c',
+        myLocationEnabled: true,
+        myLocationTrackingMode: MyLocationTrackingMode.tracking,
+      ),
     );
-  }
-
-  @override
-  void dispose() {
-    _mapController?.dispose();
-    super.dispose();
   }
 }

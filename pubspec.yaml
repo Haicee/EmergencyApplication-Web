@@ -49,6 +49,7 @@ dependencies:
   shared_preferences: ^2.2.2 # Re-enabled with JVM compatibility fix
   maplibre_gl: ^0.22.0 # MapLibre GL for Flutter
   latlong2: ^0.9.1
+  geofencing_api: ^2.0.0 # For geofencing to connect to the nearest station (can do polygon shape)
   
 
 

@@ -9,10 +9,10 @@ class ConnectingPage extends StatefulWidget
 {
     final String username;
     final String callId; // Add callId parameter
-    final String station; // Add station parameter
+    final String? station; // Add station parameter
 
 
-    const ConnectingPage({Key? key, required this.username, required this.callId, required this.station}) : super(key: key);
+    const ConnectingPage({Key? key, required this.username, required this.callId, this.station}) : super(key: key);
 
     @override
     _ConnectingPageState createState() => _ConnectingPageState();
@@ -22,7 +22,7 @@ class _ConnectingPageState extends State<ConnectingPage>
 {
     // This would be a stream or callback from your backend or push notification
     // For demo, we'll use a Future.delayed to simulate the desk officer answering
-    late StreamSubscription _callSub; // For listening to call status
+    StreamSubscription? _callSub; // For listening to call status
     Timer? _timeoutTimer; // Timer for call timeout
 
     @override
@@ -30,118 +30,83 @@ class _ConnectingPageState extends State<ConnectingPage>
     {
         super.initState();
         
-        // Set up timeout timer (30 seconds)
-        _timeoutTimer = Timer(Duration(seconds: 30), () {
-          _cancelCallDueToTimeout();
-        });
-        
-        // Listen for call status changes
-        final db = FirebaseDatabase.instance.ref();
-        _callSub = db.child('StationsCallLogs/ActiveCalls/${widget.callId}').onValue.listen((event) {
-          if (event.snapshot.value != null) {
-            final callData = event.snapshot.value as Map;
-            if (callData['status'] == 'answered') {
-              // Cancel timeout timer since call was answered
-              _timeoutTimer?.cancel();
-              // Call answered: navigate to EmergencyCallScreen
-              if (mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => EmergencyCallScreen(
-                      officerName: callData['officer'] ?? 'Desk Officer',
-                      avatarAsset: 'assets/avatar.png', // TODO: Use real avatar if available
-                      callId: widget.callId,
-                      station: widget.station,
+        if (widget.station != null) {
+          // Set up timeout timer (30 seconds)
+          _timeoutTimer = Timer(const Duration(seconds: 30), () {
+            _cancelCallDueToTimeout();
+          });
+
+          // Listen for call status changes
+          final db = FirebaseDatabase.instance.ref();
+          _callSub = db.child('StationsCallLogs/ActiveCalls/${widget.callId}').onValue.listen((event) {
+            if (event.snapshot.value != null) {
+              final callData = event.snapshot.value as Map;
+              if (callData['status'] == 'answered') {
+                _timeoutTimer?.cancel();
+                if (mounted) {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EmergencyCallScreen(
+                        officerName: callData['officer'] ?? 'Desk Officer',
+                        avatarAsset: 'assets/avatar.png',
+                        callId: widget.callId,
+                        station: widget.station!,
+                      ),
                     ),
-                  ),
-                );
-              }
-            } else if (callData['status'] == 'declined') {
-              // Cancel timeout timer since call was declined
-              _timeoutTimer?.cancel();
-              // Call declined: show message and pop
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Call was declined by the desk officer.')),
-                );
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
+                  );
                 }
-              }
-            } else if (callData['status'] == 'cancelled') {
-              // Cancel timeout timer since call was cancelled
-              _timeoutTimer?.cancel();
-              // Call cancelled: show message and pop
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Call was cancelled.')),
-                );
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
+              } else if (callData['status'] == 'declined' || callData['status'] == 'cancelled') {
+                _timeoutTimer?.cancel();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Call was ${callData['status']}.')),
+                  );
+                  if (Navigator.canPop(context)) {
+                    Navigator.pop(context);
+                  }
                 }
               }
             }
-          }
-        });
+          });
+        }
     }
 
     // Method to cancel call due to timeout
     void _cancelCallDueToTimeout() async {
+      if (widget.station == null) return;
       try {
         final db = FirebaseDatabase.instance.ref();
         final callId = widget.callId;
-        final stationName = widget.station;
-        
-        // Update call status to timeout in both locations
-        await db.child('StationsCallLogs/ActiveCalls/$callId').update({
-          'status': 'timeout',
-          'timeoutAt': ServerValue.timestamp,
-        });
-        
-        await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').update({
-          'status': 'timeout',
-          'timeoutAt': ServerValue.timestamp,
-        });
-        
-        // Move call to MissedCalls in both locations
+        final stationName = widget.station!;
+
         final callSnapshot = await db.child('StationsCallLogs/ActiveCalls/$callId').get();
         if (callSnapshot.exists) {
           final callData = callSnapshot.value as Map;
-          await db.child('StationsCallLogs/MissedCalls/$callId').set(callData);
+          final updatedCallData = {...callData, 'status': 'timeout', 'timeoutAt': ServerValue.timestamp};
+          await db.child('StationsCallLogs/MissedCalls/$callId').set(updatedCallData);
           await db.child('StationsCallLogs/ActiveCalls/$callId').remove();
-        }
-        
-        final stationCallSnapshot = await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').get();
-        if (stationCallSnapshot.exists) {
-          final stationCallData = stationCallSnapshot.value as Map;
-          await db.child('Desk Officer/$stationName/ReceivedCalls/MissedCalls/$callId').set(stationCallData);
+          await db.child('Desk Officer/$stationName/ReceivedCalls/MissedCalls/$callId').set(updatedCallData);
           await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').remove();
         }
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+            const SnackBar(
               content: Text('Call timed out. No desk officer available.'),
               backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
             ),
           );
-          if (Navigator.canPop(context)) {
-            Navigator.pop(context);
-          }
+          if (Navigator.canPop(context)) Navigator.pop(context);
         }
       } catch (e) {
         debugPrint('Error handling timeout: $e');
-        if (mounted && Navigator.canPop(context)) {
-          Navigator.pop(context);
-        }
       }
     }
 
     @override
     void dispose() {
-      _callSub.cancel(); // Clean up listener
+      _callSub?.cancel(); // Clean up listener
       _timeoutTimer?.cancel(); // Cancel timeout timer
       super.dispose();
     }
@@ -190,9 +155,9 @@ class _ConnectingPageState extends State<ConnectingPage>
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      'Connecting...',
-                      style: TextStyle(
-                        color: const Color.fromARGB(255, 255, 255, 255),
+                      widget.station != null ? 'Connecting...' : 'Searching for station...',
+                      style: const TextStyle(
+                        color: Color.fromARGB(255, 255, 255, 255),
                         fontSize: 22,
                         fontWeight: FontWeight.w500,
                       ),
@@ -202,73 +167,34 @@ class _ConnectingPageState extends State<ConnectingPage>
                       padding: const EdgeInsets.only(bottom: 60.0),
                       child: ElevatedButton.icon(
                         onPressed: () async {
-                          // Cancel the call in Firebase
+                          if (widget.station == null) {
+                            Navigator.pop(context);
+                            return;
+                          }
+
                           try {
-                            debugPrint('Citizen cancelling call: ${widget.callId}');
                             final db = FirebaseDatabase.instance.ref();
                             final callId = widget.callId;
-                            final stationName = widget.station;
-                            
-                            // Update call status to cancelled in both locations
-                            await db.child('StationsCallLogs/ActiveCalls/$callId').update({
-                              'status': 'cancelled',
-                              'cancelledBy': 'citizen',
-                              'cancelledAt': ServerValue.timestamp,
-                            });
-                            
-                            await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').update({
-                              'status': 'cancelled',
-                              'cancelledBy': 'citizen',
-                              'cancelledAt': ServerValue.timestamp,
-                            });
-                            
-                            // Move call to MissedCalls in both locations
+                            final stationName = widget.station!;
+
                             final callSnapshot = await db.child('StationsCallLogs/ActiveCalls/$callId').get();
                             if (callSnapshot.exists) {
                               final callData = callSnapshot.value as Map;
-                              await db.child('StationsCallLogs/MissedCalls/$callId').set(callData);
+                              final updatedCallData = {...callData, 'status': 'cancelled', 'cancelledBy': 'citizen', 'cancelledAt': ServerValue.timestamp};
+                              await db.child('StationsCallLogs/MissedCalls/$callId').set(updatedCallData);
                               await db.child('StationsCallLogs/ActiveCalls/$callId').remove();
-                            }
-                            
-                            final stationCallSnapshot = await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').get();
-                            if (stationCallSnapshot.exists) {
-                              final stationCallData = stationCallSnapshot.value as Map;
-                              await db.child('Desk Officer/$stationName/ReceivedCalls/MissedCalls/$callId').set(stationCallData);
+                              await db.child('Desk Officer/$stationName/ReceivedCalls/MissedCalls/$callId').set(updatedCallData);
                               await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').remove();
                             }
-                            
-                            debugPrint('Call cancelled successfully');
-                            // Show confirmation message
+
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Call cancelled successfully'),
-                                  backgroundColor: Colors.orange,
-                                  duration: Duration(seconds: 2),
-                                ),
+                                const SnackBar(content: Text('Call cancelled successfully')),
                               );
-                            }
-                            
-                            // Navigate back to homepage safely
-                            if (mounted && Navigator.canPop(context)) {
-                              Navigator.pop(context);
+                              if (Navigator.canPop(context)) Navigator.pop(context);
                             }
                           } catch (e) {
                             debugPrint('Error cancelling call: $e');
-                            // Show error message
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Failed to cancel call. Please try again.'),
-                                  backgroundColor: Colors.red,
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            }
-                            // Still try to navigate back even if Firebase update fails
-                            if (mounted && Navigator.canPop(context)) {
-                              Navigator.pop(context);
-                            }
                           }
                         },
                         icon: const Icon(Icons.call_end, size: 28,),

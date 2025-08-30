@@ -8,6 +8,8 @@ import 'emergencyCallBack.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'profile.dart';
 import 'models/station.dart';
+import 'screens/map_screen.dart';
+import 'services/geofence_manager.dart';
 
 
 class ResponsiveHomePage extends StatelessWidget {
@@ -112,6 +114,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   // Stations data
   List<Station> _stations = [];
   bool _isLoadingStations = true;
+  final GeofenceManager _geofenceManager = GeofenceManager();
 
 
   @override
@@ -256,16 +259,25 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
    
-  
+  void _goToMapScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MapScreen(stations: _stations),
+      ),
+    );
+  }
 
   @override
   void dispose() {
     _holdTimer?.cancel();
     _incomingCallSub?.cancel();
+    _geofenceManager.dispose();
     _controller.dispose();
     super.dispose();
   }
-  
+
+
   Future<void> _loadStations() async {
     try {
       final db = FirebaseDatabase.instance.ref();
@@ -291,6 +303,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 region: stationData['region'] ?? '',
                 latitude: double.tryParse(stationData['latitude']?.toString() ?? '0.0') ?? 0.0,
                 longitude: double.tryParse(stationData['longitude']?.toString() ?? '0.0') ?? 0.0,
+                radius: double.tryParse(stationData['radius']?.toString() ?? '500.0') ?? 500.0,
               );
               loadedStations.add(station);
             }
@@ -659,39 +672,60 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
+
   // Called when the user presses and holds the emergency button
   void _onTapDown(TapDownDetails details) async {
     _holdTimer = Timer(const Duration(seconds: 3), () async {
-      debugPrint("Emergency button held for 3 seconds! Initiating call to Police Station...");
-      
+      debugPrint("Emergency button held for 3 seconds! Initiating call...");
+
       try {
-        // Step 1: Fetch the user's complete information from Firebase
+        // Get user's current location
+        Position position = await Geolocator.getCurrentPosition();
+        Station? targetStation;
+
+        // Check if user is within any station's geofence
+        for (var station in _stations) {
+          double distance = Geolocator.distanceBetween(
+            position.latitude,
+            position.longitude,
+            station.latitude,
+            station.longitude,
+          );
+
+          if (distance <= station.radius) {
+            targetStation = station;
+            break; // Connect to the first station found
+          }
+        }
+
         final db = FirebaseDatabase.instance.ref();
         final userSnapshot = await db.child('users/${widget.username}').get();
-        
+
         if (!userSnapshot.exists) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('User information not found. Please try again.'),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text('User information not found.')),
           );
           return;
         }
-        
+
         final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
-        
-        // Step 2: Generate unique call ID and determine station based on user's region
         final callId = DateTime.now().millisecondsSinceEpoch.toString();
-        final stationName = _determineStationByRegion(userData['region'] ?? 'Region 12');
-        
-        // Step 3: Create call data with complete user information
+
+        // Determine station name from geofence
+        final String? stationName;
+        if (targetStation != null) {
+          stationName = targetStation.name;
+          debugPrint('User is inside geofence of ${targetStation.name}. Routing call there.');
+        } else {
+          stationName = null;
+          debugPrint('User not in any geofence. Call will not be routed to a specific station.');
+        }
+
         final callData = {
           'caller': widget.username,
           'status': 'ringing',
           'timestamp': ServerValue.timestamp,
           'station': stationName,
-          // Complete user information
           'gender': userData['gender'] ?? 'Not specified',
           'mobile': userData['contactNumber'] ?? 'Not specified',
           'address': _constructFullAddress(userData),
@@ -705,14 +739,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           'country': userData['country'] ?? '',
           'birthdate': userData['birthdate'] ?? '',
         };
-        
-        // Step 4: Write to StationsCallLogs - ActiveCalls (global tracking)
-        await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
-        
-        // Step 5: Write to Station's ReceivedCalls - ActiveCalls (station-specific)
-        await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
-        
-        // Step 6: Navigate to ConnectingPage
+
+        // Only create call logs if a station is targeted
+        if (stationName != null) {
+          await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
+          await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
+        }
+
         if (mounted) {
           Navigator.push(
             context,
@@ -727,12 +760,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         }
       } catch (e) {
         debugPrint("Error initiating call: $e");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to initiate call. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to initiate call: $e')),
+          );
+        }
       }
     });
   }
@@ -778,50 +810,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
 
 
-
-
-
-
-
-  String _determineStationByRegion(String region) {
-    // Route calls to appropriate police station based on region
-    switch (region) {
-      
-      case 'Region I':
-        return 'Police Station 1';
-      case 'Region II':
-        return 'Police Station 2';
-      case 'Region III':
-        return 'Police Station 3'; 
-      default:
-        // Default to Police Station 1 for unknown regions
-        print('Unknown region: $region, defaulting to Police Station 1');
-        return 'Police Station 1';
-    }
-  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   void _onTapUp(TapUpDetails details) {
     _holdTimer?.cancel();
   }
@@ -857,6 +845,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               ),
             ),
           ),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.map, color: Colors.white),
+              onPressed: _goToMapScreen,
+              tooltip: 'View Stations on Map',
+            ),
+          ],
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,

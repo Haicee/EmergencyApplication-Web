@@ -267,12 +267,6 @@ class _DuringCallBackPageState extends State<DuringCallBackPage> {
                           color: const Color.fromARGB(255, 85, 85, 85),
                           onTap: () {},
                         ),
-                        _ActionButton(
-                          icon: Icons.message,
-                          label: 'Message',
-                          color: const Color.fromARGB(255, 85, 85, 85),
-                          onTap: () {},
-                        ),
                       ],
                     ),
                     const SizedBox(height: 24),

@@ -95,16 +95,42 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
 
   Future<void> _fetchAllStations() async {
     try {
-      final dbRef = FirebaseDatabase.instance.ref('PoliceStations');
-      final snapshot = await dbRef.get();
-      if (snapshot.exists && snapshot.value != null) {
+      final db = FirebaseDatabase.instance.ref();
+      final snapshot = await db.child('Desk Officer').get();
+      
+      if (snapshot.exists) {
         final stationsData = Map<String, dynamic>.from(snapshot.value as Map);
-        final stations = stationsData.entries.map((entry) {
-          return Station.fromMap(entry.key, Map<String, dynamic>.from(entry.value as Map));
-        }).toList();
+        final loadedStations = <Station>[];
+        
+        stationsData.forEach((stationId, data) {
+          if (data is Map) {
+            final stationData = Map<String, dynamic>.from(data);
+            
+            // Check if this is a station (has station info)
+            if (stationData.containsKey('name') || stationId.startsWith('Police Station')) {
+              // Create a station with the data we have
+              final station = Station(
+                id: stationId,
+                name: stationData['name'] ?? stationId, // Use ID as fallback for name
+                hotline: stationData['hotline'] ?? 'No hotline',
+                streetAddress: stationData['streetAddress'] ?? stationData['address'] ?? '',
+                city: stationData['city'] ?? '',
+                region: stationData['region'] ?? '',
+                latitude: double.tryParse(stationData['latitude']?.toString() ?? '0.0') ?? 0.0,
+                longitude: double.tryParse(stationData['longitude']?.toString() ?? '0.0') ?? 0.0,
+                radius: double.tryParse(stationData['radius']?.toString() ?? '500.0') ?? 500.0,
+              );
+              loadedStations.add(station);
+            }
+          }
+        });
+        
+        // Sort stations by their ID (Police Station 1, 2, 3, etc.)
+        loadedStations.sort((a, b) => a.name.compareTo(b.name));
+        
         if (mounted) {
           setState(() {
-            _allStations = stations;
+            _allStations = loadedStations;
           });
         }
       }
@@ -223,33 +249,72 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
 }
 
   Future<void> _endCall() async {
-    _timer.cancel(); // Stop the call timer
+  _timer.cancel(); // Stop the call timer
 
-    // Leave the Agora channel and release resources
-    await _engine.leaveChannel();
-    await _engine.release();
+  // Leave the Agora channel and release resources
+  await _engine.leaveChannel();
+  await _engine.release();
 
-    // Update the call status in Firebase Realtime Database using new structure
-    final dbRef = FirebaseDatabase.instance.ref();
-    final callId = widget.callId;
-    final stationName = widget.station;
-    
-    // Update call status in both locations
-    await dbRef.child('StationsCallLogs/AnsweredCalls/$callId').update({
-      'status': 'ended',
-      'endedAt': ServerValue.timestamp,
-    });
-    
-    await dbRef.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').update({
-      'status': 'ended',
-      'endedAt': ServerValue.timestamp,
-    });
-
-
-    if (mounted) {
-      Navigator.of(context).pop(); // Go back to the previous screen (homepage)
+  // Update the call status in Firebase Realtime Database using new structure
+  final dbRef = FirebaseDatabase.instance.ref();
+  final callId = widget.callId;
+  final stationName = widget.station;
+  
+  // Update call status in StationsCallLogs and preserve citizen location data
+  final stationCallSnapshot = await dbRef.child('StationsCallLogs/AnsweredCalls/$callId').get();
+  if (stationCallSnapshot.exists) {
+    final callData = Map<String, dynamic>.from(stationCallSnapshot.value as Map);
+    // Ensure location data is preserved as strings
+    if (callData['citizenLatitude'] != null) {
+      callData['citizenLatitude'] = callData['citizenLatitude'].toString();
     }
+    if (callData['citizenLongitude'] != null) {
+      callData['citizenLongitude'] = callData['citizenLongitude'].toString();
+    }
+    callData['status'] = 'ended';
+    callData['endedAt'] = ServerValue.timestamp;
+    await dbRef.child('StationsCallLogs/AnsweredCalls/$callId').update(callData);
   }
+  
+  // Update call status in Desk Officer logs and preserve citizen location data
+  final deskOfficerCallSnapshot = await dbRef.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').get();
+  if (deskOfficerCallSnapshot.exists) {
+    final callData = Map<String, dynamic>.from(deskOfficerCallSnapshot.value as Map);
+    // Ensure location data is preserved as strings
+    if (callData['citizenLatitude'] != null) {
+      callData['citizenLatitude'] = callData['citizenLatitude'].toString();
+    }
+    if (callData['citizenLongitude'] != null) {
+      callData['citizenLongitude'] = callData['citizenLongitude'].toString();
+    }
+    callData['status'] = 'ended';
+    callData['endedAt'] = ServerValue.timestamp;
+    await dbRef.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').update(callData);
+  }
+
+  // Update call status in UsersCallLogs and preserve officer location data
+  final userCallSnapshot = await dbRef.child('UsersCallLogs/AnsweredCalls/$callId').get();
+  if (userCallSnapshot.exists) {
+    final callData = Map<String, dynamic>.from(userCallSnapshot.value as Map);
+    // Ensure officer location data is preserved as strings
+    if (callData['officerLatitude'] != null) {
+      callData['officerLatitude'] = callData['officerLatitude'].toString();
+    }
+    if (callData['officerLongitude'] != null) {
+      callData['officerLongitude'] = callData['officerLongitude'].toString();
+    }
+    if (callData['officerRadius'] != null) {
+      callData['officerRadius'] = callData['officerRadius'].toString();
+    }
+    callData['status'] = 'ended';
+    callData['endedAt'] = ServerValue.timestamp;
+    await dbRef.child('UsersCallLogs/AnsweredCalls/$callId').update(callData);
+  }
+
+  if (mounted) {
+    Navigator.of(context).pop(); // Go back to the previous screen (homepage)
+  }
+}
 
 
   @override
@@ -373,12 +438,6 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
                             }
                           },
                         ),
-                        _ActionButton(
-                          icon: Icons.message,
-                          label: 'Message',
-                          color: const Color.fromARGB(255, 85, 85, 85),
-                          onTap: () {},
-                        ),
                       ],
                     ),
                     const SizedBox(height: 24),
@@ -479,4 +538,3 @@ class _ActionButton extends StatelessWidget {
     );
   }
 } 
-

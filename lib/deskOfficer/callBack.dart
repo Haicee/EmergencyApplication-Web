@@ -68,6 +68,9 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
       String stationRegion = 'Region Not Provided';
       String stationHotline = 'No hotline';
       String stationAddress = 'No address';
+      String stationLatitude = '0.0';
+      String stationLongitude = '0.0';
+      String stationRadius = '500.0';
       
       if (stationSnapshot.exists) {
         final stationData = Map<String, dynamic>.from(stationSnapshot.value as Map);
@@ -75,6 +78,9 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
         stationRegion = (stationData['region'] ?? 'Unknown Region').toString();
         stationHotline = (stationData['hotline'] ?? 'No hotline').toString();
         stationAddress = (stationData['streetAddress'] ?? 'No address').toString();
+        stationLatitude = (stationData['latitude'] ?? '0.0').toString();
+        stationLongitude = (stationData['longitude'] ?? '0.0').toString();
+        stationRadius = (stationData['radius'] ?? '500.0').toString();
       }
       
       // Create call data for the citizen with actual station information
@@ -88,6 +94,9 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
         'status': 'ringing',
         'streetAddress': stationAddress,
         'hotline': stationHotline, // Add hotline to call data
+        'latitude': stationLatitude, // Station latitude
+        'longitude': stationLongitude, // Station longitude
+        'radius': stationRadius, // Station radius
         'timestamp': ServerValue.timestamp,
         'citizenName': widget.citizenName,
         'citizenPhotoURL': widget.photoUrl,
@@ -408,5 +417,3 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
     );
   }
 }
-
-

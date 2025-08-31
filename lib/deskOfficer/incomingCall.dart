@@ -282,16 +282,51 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                                 // Move call to AnsweredCalls in both locations
                                 final callSnapshot = await db.child('StationsCallLogs/ActiveCalls/$callId').get();
                                 if (callSnapshot.exists) {
-                                  final callData = callSnapshot.value as Map;
+                                  final callData = Map<String, dynamic>.from(callSnapshot.value as Map);
+                                  // Ensure location data is preserved as strings
+                                  if (callData['citizenLatitude'] != null) {
+                                    callData['citizenLatitude'] = callData['citizenLatitude'].toString();
+                                  }
+                                  if (callData['citizenLongitude'] != null) {
+                                    callData['citizenLongitude'] = callData['citizenLongitude'].toString();
+                                  }
                                   await db.child('StationsCallLogs/AnsweredCalls/$callId').set(callData);
                                   await db.child('StationsCallLogs/ActiveCalls/$callId').remove();
                                 }
                                 
                                 final stationCallSnapshot = await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').get();
                                 if (stationCallSnapshot.exists) {
-                                  final stationCallData = stationCallSnapshot.value as Map;
+                                  final stationCallData = Map<String, dynamic>.from(stationCallSnapshot.value as Map);
+                                  // Ensure location data is preserved as strings
+                                  if (stationCallData['citizenLatitude'] != null) {
+                                    stationCallData['citizenLatitude'] = stationCallData['citizenLatitude'].toString();
+                                  }
+                                  if (stationCallData['citizenLongitude'] != null) {
+                                    stationCallData['citizenLongitude'] = stationCallData['citizenLongitude'].toString();
+                                  }
                                   await db.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').set(stationCallData);
                                   await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').remove();
+                                }
+                                
+                                // Also update UsersCallLogs
+                                final userCallSnapshot = await db.child('UsersCallLogs/ActiveCalls/$callId').get();
+                                if (userCallSnapshot.exists) {
+                                  final userCallData = Map<String, dynamic>.from(userCallSnapshot.value as Map);
+                                  // Ensure officer location data is preserved as strings
+                                  if (userCallData['officerLatitude'] != null) {
+                                    userCallData['officerLatitude'] = userCallData['officerLatitude'].toString();
+                                  }
+                                  if (userCallData['officerLongitude'] != null) {
+                                    userCallData['officerLongitude'] = userCallData['officerLongitude'].toString();
+                                  }
+                                  if (userCallData['officerRadius'] != null) {
+                                    userCallData['officerRadius'] = userCallData['officerRadius'].toString();
+                                  }
+                                  userCallData['status'] = 'answered';
+                                  userCallData['officer'] = widget.officerId;
+                                  userCallData['answeredAt'] = ServerValue.timestamp;
+                                  await db.child('UsersCallLogs/AnsweredCalls/$callId').set(userCallData);
+                                  await db.child('UsersCallLogs/ActiveCalls/$callId').remove();
                                 }
                                 
                                 // Navigate to DuringCallPage
@@ -405,10 +440,11 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                     ),
                   ),
                 ],
+                ),
               ),
-        ),
-      ),
+            ),
     );
+        
   }
 }
 

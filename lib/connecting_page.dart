@@ -155,7 +155,7 @@ class _ConnectingPageState extends State<ConnectingPage>
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      widget.station != null ? 'Connecting...' : 'Searching for station...',
+                      widget.station != null ? 'Connecting to the station...' : 'Please try again later...',
                       style: const TextStyle(
                         color: Color.fromARGB(255, 255, 255, 255),
                         fontSize: 22,

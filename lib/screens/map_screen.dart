@@ -68,7 +68,7 @@ class _MapScreenState extends State<MapScreen> {
       controller.addSymbol(SymbolOptions(
         geometry: LatLng(station.latitude, station.longitude),
         iconImage: 'station_pin',
-        iconSize: 0.2, // Adjust size as needed
+        iconSize: 0.2,
       ));
 
       // Add geofence circle polygon
@@ -92,7 +92,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> station_Pin(MapLibreMapController controller) async {
-    final ByteData byteData = await rootBundle.load('assets/images/Pin - Copy.png');
+    final ByteData byteData = await rootBundle.load('assets/images/station_pin.png');
     final Uint8List bytes = byteData.buffer.asUint8List();
     return controller.addImage('station_pin', bytes);
   }
@@ -109,7 +109,7 @@ class _MapScreenState extends State<MapScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Geofence Entered'),
+        title: const Text('Police Station Area'),
         content: Text('You have entered the area for ${station.name}.'),
         actions: [
           TextButton(

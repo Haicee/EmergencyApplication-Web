@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'package:emergency/screens/officer_map_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart'; // Add Agora import
 import 'package:firebase_database/firebase_database.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../utils/agora_config.dart'; // Import Agora configuration
+import '../models/station.dart'; // Add Station import
+import '../screens/officer_map_screen.dart'; // Add CallMapScreen import
 
 // DuringCallPage is the in-call UI for the desk officer.
 // Here, you should join the Agora channel in initState, handle mute/unmute, and leave the channel when the call ends.
@@ -37,6 +40,9 @@ class _DuringCallPageState extends State<DuringCallPage> {
   bool _joined = false;   // Track join state
   bool _muted = false; 
   bool _speakerEnabled = false;   // Track mute state
+  List<Station> _stations = []; // Initialize stations list
+  double? _callerLatitude;
+  double? _callerLongitude;
 
   @override
   void initState() {
@@ -53,6 +59,7 @@ class _DuringCallPageState extends State<DuringCallPage> {
         _elapsed = DateTime.now().difference(widget.callStartTime);
       });
     });
+    _initStations(); // Initialize stations data
   }
 
   
@@ -168,31 +175,162 @@ class _DuringCallPageState extends State<DuringCallPage> {
     debugPrint("Speakerphone toggled to: $_speakerEnabled");
   }
 
+  void _goToMapScreen() {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => CallMapScreen(stations: _stations, callerLatitude: _callerLatitude, callerLongitude: _callerLongitude, callerName: widget.name),
+    ),
+  );
+  }
+
   Future<void> _endCall() async {
-    _timer.cancel(); // Stop the call timer
+  _timer.cancel(); // Stop the call timer
 
-    // Leave the Agora channel and release resources
-    await _engine.leaveChannel();
-    await _engine.release();
+  // Leave the Agora channel and release resources
+  await _engine.leaveChannel();
+  await _engine.release();
 
-    // Update the call status in Firebase Realtime Database using new structure
-    final dbRef = FirebaseDatabase.instance.ref();
-    final callId = widget.callId;
-    final stationName = widget.station;
-    
-    // Update call status in both locations
-    await dbRef.child('StationsCallLogs/AnsweredCalls/$callId').update({
-      'status': 'ended',
-      'endedAt': ServerValue.timestamp,
-    });
-    
-    await dbRef.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').update({
-      'status': 'ended',
-      'endedAt': ServerValue.timestamp,
-    });
+  // Update the call status in Firebase Realtime Database using new structure
+  final dbRef = FirebaseDatabase.instance.ref();
+  final callId = widget.callId;
+  final stationName = widget.station;
+  
+  // Update call status in StationsCallLogs and preserve citizen location data
+  final stationCallSnapshot = await dbRef.child('StationsCallLogs/AnsweredCalls/$callId').get();
+  if (stationCallSnapshot.exists) {
+    final callData = Map<String, dynamic>.from(stationCallSnapshot.value as Map);
+    // Ensure location data is preserved as strings
+    if (callData['citizenLatitude'] != null) {
+      callData['citizenLatitude'] = callData['citizenLatitude'].toString();
+    }
+    if (callData['citizenLongitude'] != null) {
+      callData['citizenLongitude'] = callData['citizenLongitude'].toString();
+    }
+    callData['status'] = 'ended';
+    callData['endedAt'] = ServerValue.timestamp;
+    await dbRef.child('StationsCallLogs/AnsweredCalls/$callId').update(callData);
+  }
+  
+  // Update call status in Desk Officer logs and preserve citizen location data
+  final deskOfficerCallSnapshot = await dbRef.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').get();
+  if (deskOfficerCallSnapshot.exists) {
+    final callData = Map<String, dynamic>.from(deskOfficerCallSnapshot.value as Map);
+    // Ensure location data is preserved as strings
+    if (callData['citizenLatitude'] != null) {
+      callData['citizenLatitude'] = callData['citizenLatitude'].toString();
+    }
+    if (callData['citizenLongitude'] != null) {
+      callData['citizenLongitude'] = callData['citizenLongitude'].toString();
+    }
+    callData['status'] = 'ended';
+    callData['endedAt'] = ServerValue.timestamp;
+    await dbRef.child('Desk Officer/$stationName/ReceivedCalls/AnsweredCalls/$callId').update(callData);
+  }
 
-    if (mounted) {
-      Navigator.of(context).pop(); // Go back to the previous screen (doHomepage)
+  // Update call status in UsersCallLogs and preserve officer location data
+  final userCallSnapshot = await dbRef.child('UsersCallLogs/AnsweredCalls/$callId').get();
+  if (userCallSnapshot.exists) {
+    final callData = Map<String, dynamic>.from(userCallSnapshot.value as Map);
+    // Ensure officer location data is preserved as strings
+    if (callData['officerLatitude'] != null) {
+      callData['officerLatitude'] = callData['officerLatitude'].toString();
+    }
+    if (callData['officerLongitude'] != null) {
+      callData['officerLongitude'] = callData['officerLongitude'].toString();
+    }
+    if (callData['officerRadius'] != null) {
+      callData['officerRadius'] = callData['officerRadius'].toString();
+    }
+    callData['status'] = 'ended';
+    callData['endedAt'] = ServerValue.timestamp;
+    await dbRef.child('UsersCallLogs/AnsweredCalls/$callId').update(callData);
+  }
+
+  if (mounted) {
+    Navigator.of(context).pop(); // Go back to the previous screen (doHomepage)
+  }
+}
+
+  Future<void> _initStations() async {
+    try {
+      final db = FirebaseDatabase.instance.ref();
+      
+      // Load stations data
+      final deskOfficerSnapshot = await db.child('Desk Officer').get();
+      if (deskOfficerSnapshot.exists) {
+        final stationsRaw = deskOfficerSnapshot.value;
+        if (stationsRaw is Map) {
+          final stations = stationsRaw as Map<dynamic, dynamic>;
+          List<Station> stationsList = [];
+          for (final stationEntry in stations.entries) {
+            final stationName = stationEntry.key.toString();
+            final stationData = stationEntry.value;
+            if (stationData is Map) {
+              final stationMap = stationData as Map<dynamic, dynamic>;
+              if (stationMap.containsKey('latitude') && stationMap.containsKey('longitude')) {
+                stationsList.add(Station(
+                  id: stationName,
+                  name: stationName,
+                  latitude: double.tryParse(stationMap['latitude'].toString()) ?? 0.0,
+                  longitude: double.tryParse(stationMap['longitude'].toString()) ?? 0.0,
+                  radius: double.tryParse(stationMap['radius']?.toString() ?? '500') ?? 500.0,
+                  hotline: stationMap['hotline'] ?? '',
+                  streetAddress: stationMap['streetAddress'] ?? '',
+                  city: stationMap['city'] ?? '',
+                  region: stationMap['region'] ?? '',
+                ));
+              }
+            }
+          }
+          if (mounted) {
+            setState(() {
+              _stations = stationsList;
+            });
+          }
+        }
+      }
+      
+      // Load caller location from call data
+      await _loadCallerLocation();
+      
+    } catch (e) {
+      print('Error loading stations: $e');
+    }
+  }
+
+  Future<void> _loadCallerLocation() async {
+    try {
+      final db = FirebaseDatabase.instance.ref();
+      final callId = widget.callId;
+      
+      // Try to get caller location from call data
+      final callSnapshot = await db.child('StationsCallLogs/AnsweredCalls/$callId').get();
+      if (callSnapshot.exists) {
+        final callData = Map<String, dynamic>.from(callSnapshot.value as Map);
+        if (mounted) {
+          setState(() {
+            _callerLatitude = double.tryParse(callData['citizenLatitude']?.toString() ?? '');
+            _callerLongitude = double.tryParse(callData['citizenLongitude']?.toString() ?? '');
+          });
+        }
+      }
+      
+      // If not found in call data, try user profile
+      if (_callerLatitude == null || _callerLongitude == null) {
+        final userSnapshot = await db.child('users/${widget.name}').get();
+        if (userSnapshot.exists) {
+          final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
+          if (mounted) {
+            setState(() {
+              _callerLatitude = double.tryParse(userData['latitude']?.toString() ?? '');
+              _callerLongitude = double.tryParse(userData['longitude']?.toString() ?? '');
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading caller location: $e');
     }
   }
 
@@ -308,14 +446,11 @@ class _DuringCallPageState extends State<DuringCallPage> {
                           icon: Icons.location_on,
                           label: 'Location',
                           color: const Color.fromARGB(255, 85, 85, 85),
-                          onTap: () {},
+                          onTap: () {
+                            _goToMapScreen();
+                          },
                         ),
-                        _ActionButton(
-                          icon: Icons.message,
-                          label: 'Message',
-                          color: const Color.fromARGB(255, 85, 85, 85),
-                          onTap: () {},
-                        ),
+                        
                       ],
                     ),
                     const SizedBox(height: 24),

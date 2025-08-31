@@ -7,6 +7,8 @@ import 'incomingCall.dart'; // Added import for IncomingCallPage
 import 'components/missedViewDetails.dart';
 import 'dart:async';
 import 'components/answeredViewDetails.dart';
+import '../models/station.dart'; // Add Station import
+import '../screens/officer_map_screen.dart'; // Add OfficerMapScreen import
 
 class DeskOfficerHomePage extends StatefulWidget {
   final String username;
@@ -28,6 +30,7 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
   String _stationAddress = "";
   final DatabaseReference _database = FirebaseDatabase.instance.ref();
   Set<String> _activeCallIds = {};
+  List<Station> _stations = []; // Initialize _stations list
   
   // Tab controller
   TabController? _tabController;
@@ -304,6 +307,34 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
         if (stationsRaw is Map) {
           final stations = stationsRaw as Map<dynamic, dynamic>;
           print('Stations: $stations');
+          
+          // Load stations data for map
+          List<Station> stationsList = [];
+          for (final stationEntry in stations.entries) {
+            final stationName = stationEntry.key.toString();
+            final stationData = stationEntry.value;
+            if (stationData is Map) {
+              final stationMap = stationData as Map<dynamic, dynamic>;
+              // Create Station object if we have location data
+              if (stationMap.containsKey('latitude') && stationMap.containsKey('longitude')) {
+                stationsList.add(Station(
+                  id: stationName,
+                  name: stationName,
+                  latitude: double.tryParse(stationMap['latitude'].toString()) ?? 0.0,
+                  longitude: double.tryParse(stationMap['longitude'].toString()) ?? 0.0,
+                  radius: double.tryParse(stationMap['radius']?.toString() ?? '500') ?? 500.0,
+                  hotline: stationMap['hotline'] ?? '',
+                  streetAddress: stationMap['streetAddress'] ?? '',
+                  city: stationMap['city'] ?? '',
+                  region: stationMap['region'] ?? '',
+                ));
+              }
+            }
+          }
+          setState(() {
+            _stations = stationsList;
+          });
+          
           for (final stationEntry in stations.entries) {
             final officersRaw = stationEntry.value;
             if (officersRaw is Map) {
@@ -1154,19 +1185,54 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
         'declinedAt': ServerValue.timestamp,
       });
       
-      // Move call to MissedCalls in both locations
+      // Move call to MissedCalls in both locations with preserved location data
       final callSnapshot = await db.child('StationsCallLogs/ActiveCalls/$callId').get();
       if (callSnapshot.exists) {
-        final callData = callSnapshot.value as Map;
+        final callData = Map<String, dynamic>.from(callSnapshot.value as Map);
+        // Ensure citizen location data is preserved as strings
+        if (callData['citizenLatitude'] != null) {
+          callData['citizenLatitude'] = callData['citizenLatitude'].toString();
+        }
+        if (callData['citizenLongitude'] != null) {
+          callData['citizenLongitude'] = callData['citizenLongitude'].toString();
+        }
         await db.child('StationsCallLogs/MissedCalls/$callId').set(callData);
         await db.child('StationsCallLogs/ActiveCalls/$callId').remove();
       }
       
       final stationCallSnapshot = await db.child('Desk Officer/$_stationName/ReceivedCalls/ActiveCalls/$callId').get();
       if (stationCallSnapshot.exists) {
-        final stationCallData = stationCallSnapshot.value as Map;
+        final stationCallData = Map<String, dynamic>.from(stationCallSnapshot.value as Map);
+        // Ensure citizen location data is preserved as strings
+        if (stationCallData['citizenLatitude'] != null) {
+          stationCallData['citizenLatitude'] = stationCallData['citizenLatitude'].toString();
+        }
+        if (stationCallData['citizenLongitude'] != null) {
+          stationCallData['citizenLongitude'] = stationCallData['citizenLongitude'].toString();
+        }
         await db.child('Desk Officer/$_stationName/ReceivedCalls/MissedCalls/$callId').set(stationCallData);
         await db.child('Desk Officer/$_stationName/ReceivedCalls/ActiveCalls/$callId').remove();
+      }
+      
+      // Also update UsersCallLogs
+      final userCallSnapshot = await db.child('UsersCallLogs/ActiveCalls/$callId').get();
+      if (userCallSnapshot.exists) {
+        final userCallData = Map<String, dynamic>.from(userCallSnapshot.value as Map);
+        // Ensure officer location data is preserved as strings
+        if (userCallData['officerLatitude'] != null) {
+          userCallData['officerLatitude'] = userCallData['officerLatitude'].toString();
+        }
+        if (userCallData['officerLongitude'] != null) {
+          userCallData['officerLongitude'] = userCallData['officerLongitude'].toString();
+        }
+        if (userCallData['officerRadius'] != null) {
+          userCallData['officerRadius'] = userCallData['officerRadius'].toString();
+        }
+        userCallData['status'] = 'declined';
+        userCallData['declinedBy'] = widget.officerId;
+        userCallData['declinedAt'] = ServerValue.timestamp;
+        await db.child('UsersCallLogs/MissedCalls/$callId').set(userCallData);
+        await db.child('UsersCallLogs/ActiveCalls/$callId').remove();
       }
       
       ScaffoldMessenger.of(context).showSnackBar(

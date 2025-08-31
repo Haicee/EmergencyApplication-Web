@@ -293,7 +293,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             
             // Check if this is a station (has station info)
             if (stationData.containsKey('name') || stationId.startsWith('Police Station')) {
-              // Create a station with the data we have
+              // Create a station with the data we
               final station = Station(
                 id: stationId,
                 name: stationData['name'] ?? stationId, // Use ID as fallback for name
@@ -675,8 +675,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   // Called when the user presses and holds the emergency button
   void _onTapDown(TapDownDetails details) async {
-    _holdTimer = Timer(const Duration(seconds: 3), () async {
-      debugPrint("Emergency button held for 3 seconds! Initiating call...");
+    _holdTimer = Timer(const Duration(seconds: 2), () async {
+      debugPrint("Emergency button held for 2 seconds! Initiating call...");
 
       try {
         // Get user's current location
@@ -738,25 +738,45 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           'city': userData['city'] ?? '',
           'country': userData['country'] ?? '',
           'birthdate': userData['birthdate'] ?? '',
+          // Add citizen location for StationsCallLogs
+          'citizenLatitude': position.latitude.toString(),
+          'citizenLongitude': position.longitude.toString(),
         };
+
+        if (mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ConnectingPage(
+                  username: widget.username,
+                  callId: callId,
+                  station: stationName,
+                ),
+              ),
+            );
+          }
 
         // Only create call logs if a station is targeted
         if (stationName != null) {
+          // Create StationsCallLogs with citizen location
           await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
           await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
-        }
 
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ConnectingPage(
-                username: widget.username,
-                callId: callId,
-                station: stationName,
-              ),
-            ),
-          );
+          // Create UsersCallLogs with officer location
+          // First get officer location from station data
+          final stationSnapshot = await db.child('Desk Officer/$stationName').get();
+          if (stationSnapshot.exists) {
+            final stationData = Map<String, dynamic>.from(stationSnapshot.value as Map);
+            final callDataWithOfficerLocation = Map<String, dynamic>.from(callData);
+            callDataWithOfficerLocation['officerLatitude'] = stationData['latitude']?.toString() ?? '0.0';
+            callDataWithOfficerLocation['officerLongitude'] = stationData['longitude']?.toString() ?? '0.0';
+            callDataWithOfficerLocation['officerRadius'] = stationData['radius']?.toString() ?? '500.0';
+            
+            
+            await db.child('UsersCallLogs/ActiveCalls/$callId').set(callDataWithOfficerLocation);
+          }
+
+          
         }
       } catch (e) {
         debugPrint("Error initiating call: $e");

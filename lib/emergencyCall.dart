@@ -41,6 +41,13 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
   LatLng? _citizenLocation;
   LatLng? _stationLocation;
   List<Station> _allStations = [];
+  Map<String, dynamic>? _stationData;
+  String _stationHotline = '';
+  String _stationAddress = '';
+  String _stationLatitude = '';
+  String _stationLongitude = '';
+  String _stationName = '';
+  String _stationRadius = '';
 
   @override
   void initState() {
@@ -48,6 +55,7 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
     _initAgora(); // call tis to set up agora
     _getLocations();
     _fetchAllStations();
+    _loadStationProfile();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         _seconds++;
@@ -137,6 +145,45 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
     } catch (e) {
       debugPrint('Failed to fetch all stations: $e');
     }
+  }
+
+  Future<void> _loadStationProfile() async {
+    try {
+      final dbRef = FirebaseDatabase.instance.ref();
+      final snapshot = await dbRef.child('Desk Officer/${widget.station}').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final stationData = Map<String, dynamic>.from(snapshot.value as Map);
+        if (mounted) {
+          setState(() {
+            _stationData = stationData;
+            _stationHotline = stationData['hotline'] ?? 'Not provided';
+            _stationAddress = _buildFullAddress(stationData);
+            _stationLatitude = stationData['latitude']?.toString() ?? 'Not provided';
+            _stationLongitude = stationData['longitude']?.toString() ?? 'Not provided';
+            _stationName = stationData['name'] ?? widget.station;
+            _stationRadius = stationData['radius']?.toString() ?? 'Not provided';
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load station profile: $e');
+    }
+  }
+  
+  String _buildFullAddress(Map<String, dynamic> stationData) {
+    List<String> addressParts = [];
+    
+    if (stationData['streetAddress'] != null && stationData['streetAddress'].toString().isNotEmpty) {
+      addressParts.add(stationData['streetAddress'].toString());
+    }
+    if (stationData['city'] != null && stationData['city'].toString().isNotEmpty) {
+      addressParts.add(stationData['city'].toString());
+    }
+    if (stationData['region'] != null && stationData['region'].toString().isNotEmpty) {
+      addressParts.add(stationData['region'].toString());
+    }
+    
+    return addressParts.isNotEmpty ? addressParts.join(', ') : 'Not provided';
   }
 
   Future<void> _handlePermissions() async {
@@ -339,6 +386,138 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
     _endCall(); // Use the async version
   }
 
+  void _onViewProfile() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.8,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF3E45CD), Color(0xFFFF6767)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.all(Radius.circular(20)),
+            ),
+            child: Column(
+              children: [
+                // Header with close button
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(width: 40),
+                      const Text(
+                        'Station Profile',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Profile content
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      children: [
+                        // Station icon and name
+                        CircleAvatar(
+                          radius: 48,
+                          backgroundColor: Colors.white,
+                          child: Icon(
+                            Icons.local_police,
+                            size: 48,
+                            color: Colors.blue[800],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _stationName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 24,
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 24),
+                        
+                        // Contact Information Section
+                        _SectionHeader(title: 'Contact Information', icon: Icons.contact_phone),
+                        const SizedBox(height: 12),
+                        _InfoCard(
+                          label: 'Hotline',
+                          value: _stationHotline,
+                          icon: Icons.phone,
+                        ),
+                        const SizedBox(height: 12),
+                        _InfoCard(
+                          label: 'Address',
+                          value: _stationAddress,
+                          icon: Icons.location_on,
+                        ),
+                        
+                        const SizedBox(height: 24),
+                        
+                        // Location Information Section
+                        _SectionHeader(title: 'Location Information', icon: Icons.map),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _InfoCard(
+                                label: 'Latitude',
+                                value: _stationLatitude,
+                                icon: Icons.my_location,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _InfoCard(
+                                label: 'Longitude',
+                                value: _stationLongitude,
+                                icon: Icons.my_location,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _InfoCard(
+                          label: 'Service Radius',
+                          value: '$_stationRadius meters',
+                          icon: Icons.radio_button_checked,
+                          labelColor: Colors.blue,
+                          backgroundColor: const Color(0xFFE3F2FD),
+                          borderColor: Colors.blue,
+                        ),
+                        
+                        const SizedBox(height: 24),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   String get _formattedTime {
     final minutes = (_seconds ~/ 60).toString().padLeft(2, '0');
     final seconds = (_seconds % 60).toString().padLeft(2, '0');
@@ -413,7 +592,7 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
                           icon: Icons.person,
                           label: 'View Profile',
                           color: const Color.fromARGB(255, 85, 85, 85),
-                          onTap: () {},
+                          onTap: _onViewProfile,
                         ),
                         _ActionButton(
                           icon: Icons.location_on,
@@ -538,3 +717,110 @@ class _ActionButton extends StatelessWidget {
     );
   }
 } 
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+
+  const _SectionHeader({
+    Key? key,
+    required this.title,
+    required this.icon,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          color: Colors.white,
+          size: 20,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color? labelColor;
+  final Color? backgroundColor;
+  final Color? borderColor;
+
+  const _InfoCard({
+    Key? key,
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.labelColor,
+    this.backgroundColor,
+    this.borderColor,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: backgroundColor ?? Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: borderColor != null ? Border.all(color: borderColor!, width: 1) : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: labelColor ?? Colors.grey[600],
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: labelColor ?? Colors.grey[700],
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: labelColor ?? Colors.black87,
+              fontWeight: FontWeight.w500,
+              fontSize: 14,
+            ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}

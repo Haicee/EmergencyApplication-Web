@@ -10,6 +10,8 @@ import 'profile.dart';
 import 'models/station.dart';
 import 'screens/map_screen.dart';
 import 'services/geofence_manager.dart';
+import 'services/emergency_mode_service.dart'; // Import the emergency mode service
+import 'services/offline_emergency_service.dart'; // Import the offline emergency service
 
 
 class ResponsiveHomePage extends StatelessWidget {
@@ -110,11 +112,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   StreamSubscription? _incomingCallSub;
   bool _isShowingIncomingDialog = false;
   final Set<String> _activeIncomingCallIds = {};
+  bool _isEmergencyInProgress = false; // Add this variable
   
   // Stations data
   List<Station> _stations = [];
   bool _isLoadingStations = true;
   final GeofenceManager _geofenceManager = GeofenceManager();
+  final EmergencyModeService _emergencyModeService = EmergencyModeService(); // Initialize the emergency mode service
+  final OfflineEmergencyService _offlineEmergencyService = OfflineEmergencyService(); // Initialize the offline emergency service
 
 
   @override
@@ -382,6 +387,23 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       setState(() {
         _currentLocation = addressParts.join(', ');
       });
+
+      // Proactive station detection and caching (works both online/offline)
+      try {
+        // Cache station data first (if online)
+        await _offlineEmergencyService.cacheStationData();
+        
+        // Detect and cache current station based on geofence
+        Map<String, dynamic>? currentStation = await _offlineEmergencyService.getCachedCurrentStation();
+        
+        if (currentStation != null) {
+          debugPrint('🏢 Current station detected and cached: ${currentStation['name'] ?? currentStation['id']}');
+        } else {
+          debugPrint('📍 User location updated - no station geofence detected');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error in proactive station detection: $e');
+      }
     } catch (e) {
       setState(() {
         _currentLocation = "Could not get location";
@@ -675,15 +697,28 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   // Called when the user presses and holds the emergency button
   void _onTapDown(TapDownDetails details) async {
+    if (_isEmergencyInProgress) return; // Prevent multiple emergency calls
+    
     _holdTimer = Timer(const Duration(seconds: 2), () async {
-      debugPrint("Emergency button held for 2 seconds! Initiating call...");
+      debugPrint("🚨 Emergency button held for 2 seconds! Initiating emergency response...");
+      
+      setState(() {
+        _isEmergencyInProgress = true;
+      });
 
       try {
-        // Get user's current location
+        debugPrint("🔍 Starting dual-mode emergency system...");
+        
+        // Step 1: Check connectivity first
+        bool hasInternet = await _offlineEmergencyService.hasInternetConnection();
+        debugPrint("🌐 Internet connectivity: ${hasInternet ? 'ONLINE' : 'OFFLINE'}");
+        
+        // Get user's current location for geofence detection
         Position position = await Geolocator.getCurrentPosition();
         Station? targetStation;
 
         // Check if user is within any station's geofence
+        debugPrint("📍 User location: ${position.latitude}, ${position.longitude}");
         for (var station in _stations) {
           double distance = Geolocator.distanceBetween(
             position.latitude,
@@ -692,143 +727,210 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             station.longitude,
           );
 
+          debugPrint("🏢 Checking ${station.name}: distance = ${distance.toStringAsFixed(2)}m, radius = ${station.radius}m");
           if (distance <= station.radius) {
             targetStation = station;
+            debugPrint("✅ User is inside geofence of ${station.name}. Routing call there.");
             break; // Connect to the first station found
           }
         }
 
-        final db = FirebaseDatabase.instance.ref();
-        final userSnapshot = await db.child('users/${widget.username}').get();
-
-        if (!userSnapshot.exists) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('User information not found.')),
-          );
-          return;
+        if (targetStation == null) {
+          debugPrint("⚠️ User not in any geofence. Will use nearest station logic.");
         }
 
-        final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
-        final callId = DateTime.now().millisecondsSinceEpoch.toString();
-
-        // Determine station name from geofence
-        final String? stationName;
-        if (targetStation != null) {
-          stationName = targetStation.name;
-          debugPrint('User is inside geofence of ${targetStation.name}. Routing call there.');
+        // Step 2: Route based on connectivity
+        if (hasInternet) {
+          debugPrint("🟢 ONLINE MODE: Initiating Agora voice call...");
+          await _handleOnlineEmergency(position, targetStation);
         } else {
-          stationName = null;
-          debugPrint('User not in any geofence. Call will not be routed to a specific station.');
+          debugPrint("🔴 OFFLINE MODE: Sending SMS alert...");
+          await _handleOfflineEmergency(position, targetStation);
         }
 
-        final callData = {
-          'caller': widget.username,
-          'status': 'ringing',
-          'timestamp': ServerValue.timestamp,
-          'station': stationName,
-          'gender': userData['gender'] ?? 'Not specified',
-          'mobile': userData['contactNumber'] ?? 'Not specified',
-          'address': _constructFullAddress(userData),
-          'disabilityStatus': userData['pwdCondition'] ?? 'None',
-          'medicalConditions': userData['medicalCondition'] ?? 'None',
-          'photoUrl': userData['profileImageUrl'] ?? 'assets/default_avatar.png',
-          'firstName': userData['firstName'] ?? '',
-          'surname': userData['surname'] ?? '',
-          'barangay': userData['barangay'] ?? '',
-          'city': userData['city'] ?? '',
-          'country': userData['country'] ?? '',
-          'birthdate': userData['birthdate'] ?? '',
-          // Add citizen location for StationsCallLogs
-          'citizenLatitude': position.latitude.toString(),
-          'citizenLongitude': position.longitude.toString(),
-        };
-
-        if (mounted) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ConnectingPage(
-                  username: widget.username,
-                  callId: callId,
-                  station: stationName,
-                ),
-              ),
-            );
-          }
-
-        // Only create call logs if a station is targeted
-        if (stationName != null) {
-          // Create StationsCallLogs with citizen location
-          await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
-          await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
-
-          // Create UsersCallLogs with officer location
-          // First get officer location from station data
-          final stationSnapshot = await db.child('Desk Officer/$stationName').get();
-          if (stationSnapshot.exists) {
-            final stationData = Map<String, dynamic>.from(stationSnapshot.value as Map);
-            final callDataWithOfficerLocation = Map<String, dynamic>.from(callData);
-            callDataWithOfficerLocation['officerLatitude'] = stationData['latitude']?.toString() ?? '0.0';
-            callDataWithOfficerLocation['officerLongitude'] = stationData['longitude']?.toString() ?? '0.0';
-            callDataWithOfficerLocation['officerRadius'] = stationData['radius']?.toString() ?? '500.0';
-            
-            
-            await db.child('UsersCallLogs/ActiveCalls/$callId').set(callDataWithOfficerLocation);
-          }
-
-          
-        }
       } catch (e) {
-        debugPrint("Error initiating call: $e");
+        debugPrint("💥 Error during emergency response: $e");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to initiate call: $e')),
+            SnackBar(
+              content: Text('Emergency system error: $e'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
           );
         }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isEmergencyInProgress = false;
+          });
+        }
+        debugPrint("🔄 Emergency process completed, resetting state");
       }
     });
   }
 
-  // Helper method to construct full address from user data
-  String _constructFullAddress(Map<String, dynamic> userData) {
-    List<String> addressParts = [];
-    
-    // Add street address if available
-    if (userData['streetAddress'] != null && userData['streetAddress'].toString().isNotEmpty) {
-      addressParts.add(userData['streetAddress']);
+  /// Handle online emergency with Agora voice call
+  Future<void> _handleOnlineEmergency(Position position, Station? targetStation) async {
+    try {
+      debugPrint("📞 Starting online emergency call process...");
+      
+      // Get user data from Firebase
+      final db = FirebaseDatabase.instance.ref();
+      final userSnapshot = await db.child('users/${widget.username}').get();
+
+      if (!userSnapshot.exists) {
+        debugPrint("❌ User information not found in database");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('User information not found.')),
+          );
+        }
+        return;
+      }
+
+      final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
+      final callId = DateTime.now().millisecondsSinceEpoch.toString();
+      final String? stationName = targetStation?.name;
+
+      debugPrint("📋 Creating call data for station: ${stationName ?? 'No specific station'}");
+
+      // Prepare call data for Firebase logging
+      final callData = {
+        'caller': widget.username,
+        'status': 'ringing',
+        'timestamp': ServerValue.timestamp,
+        'station': stationName,
+        'gender': userData['gender'] ?? 'Not specified',
+        'mobile': userData['contactNumber'] ?? 'Not specified',
+        'address': _constructFullAddress(userData),
+        'disabilityStatus': userData['pwdCondition'] ?? 'None',
+        'medicalConditions': userData['medicalCondition'] ?? 'None',
+        'photoUrl': userData['profileImageUrl'] ?? 'assets/default_avatar.png',
+        'firstName': userData['firstName'] ?? '',
+        'surname': userData['surname'] ?? '',
+        'barangay': userData['barangay'] ?? '',
+        'city': userData['city'] ?? '',
+        'country': userData['country'] ?? '',
+        'birthdate': userData['birthdate'] ?? '',
+        'citizenLatitude': position.latitude.toString(),
+        'citizenLongitude': position.longitude.toString(),
+      };
+
+      // Store call data in Firebase for online calls
+      if (stationName != null) {
+        debugPrint('💾 Storing call data in Firebase for station: $stationName');
+        
+        // Create StationsCallLogs with citizen location
+        await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
+        await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
+
+        // Create UsersCallLogs with officer location
+        final stationSnapshot = await db.child('Desk Officer/$stationName').get();
+        if (stationSnapshot.exists) {
+          final stationData = Map<String, dynamic>.from(stationSnapshot.value as Map);
+          final callDataWithOfficerLocation = Map<String, dynamic>.from(callData);
+          callDataWithOfficerLocation['officerLatitude'] = stationData['latitude']?.toString() ?? '0.0';
+          callDataWithOfficerLocation['officerLongitude'] = stationData['longitude']?.toString() ?? '0.0';
+          callDataWithOfficerLocation['officerRadius'] = stationData['radius']?.toString() ?? '500.0';
+          
+          await db.child('UsersCallLogs/ActiveCalls/$callId').set(callDataWithOfficerLocation);
+          debugPrint('✅ Call data stored successfully in Firebase');
+        }
+      } else {
+        debugPrint('⚠️ No specific station targeted - call data not stored in Firebase');
+      }
+      
+      // Navigate to existing connecting page for Agora call
+      debugPrint('🚀 Launching Agora call interface...');
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConnectingPage(
+              username: widget.username,
+              callId: callId,
+              station: stationName,
+            ),
+          ),
+        );
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Online emergency failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Online emergency call failed: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     }
-    
-    // Add barangay if available
-    if (userData['barangay'] != null && userData['barangay'].toString().isNotEmpty) {
-      addressParts.add(userData['barangay']);
-    }
-    
-    // Add city if available
-    if (userData['city'] != null && userData['city'].toString().isNotEmpty) {
-      addressParts.add(userData['city']);
-    }
-    
-    // Add region if available
-    if (userData['region'] != null && userData['region'].toString().isNotEmpty) {
-      addressParts.add(userData['region']);
-    }
-    
-    // Add country if available
-    if (userData['country'] != null && userData['country'].toString().isNotEmpty) {
-      addressParts.add(userData['country']);
-    }
-    
-    return addressParts.join(', ');
   }
 
+  /// Handle offline emergency with SMS
+  Future<void> _handleOfflineEmergency(Position position, Station? targetStation) async {
+    try {
+      debugPrint("📱 Starting offline emergency SMS process...");
+      
+      // Use the offline emergency service
+      final result = await _offlineEmergencyService.handleOfflineEmergency(
+        userName: widget.username,
+        additionalInfo: "Emergency assistance needed",
+      );
 
+      debugPrint("📋 SMS Emergency result: ${result.toString()}");
 
-
-
-
-
-
-
+      if (result['success']) {
+        debugPrint('✅ Offline emergency SMS sent successfully');
+        debugPrint('📍 SMS sent to station: ${result['station']?['name'] ?? 'Unknown'}');
+        debugPrint('📞 Station hotline: ${result['station']?['hotline'] ?? 'Unknown'}');
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '🚨 Emergency SMS sent successfully!\n${result['message']}',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'OK',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
+            ),
+          );
+        }
+      } else {
+        debugPrint('❌ SMS Emergency failed: ${result['message']}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Emergency SMS failed: ${result['message']}'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Offline emergency failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Offline emergency failed: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
 
   void _onTapUp(TapUpDetails details) {
     _holdTimer?.cancel();
@@ -1163,7 +1265,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               onPressed: () {}, // Keep enabled for color, handled by GestureDetector
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color.fromARGB(255, 255, 62, 59),
-                                shape: CircleBorder(),
+                                foregroundColor: Colors.white,
                                 padding: EdgeInsets.all(20),
                               ),
                               child: Icon(
@@ -1178,11 +1280,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     ),
                     
                     Text(
-                      "Press and Hold to Call Emergency",
+                      _isEmergencyInProgress 
+                        ? "Processing Emergency..." 
+                        : "Press and Hold to Call Emergency",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 18,
-                        color: Colors.black54,
+                        color: _isEmergencyInProgress ? Colors.orange : Colors.black54,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -1235,4 +1339,36 @@ class RipplePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) {
     return true;
   }
+}
+
+// Helper method to construct full address from user data
+String _constructFullAddress(Map<String, dynamic> userData) {
+  List<String> addressParts = [];
+  
+  // Add street address if available
+  if (userData['streetAddress'] != null && userData['streetAddress'].toString().isNotEmpty) {
+    addressParts.add(userData['streetAddress']);
+  }
+  
+  // Add barangay if available
+  if (userData['barangay'] != null && userData['barangay'].toString().isNotEmpty) {
+    addressParts.add(userData['barangay']);
+  }
+  
+  // Add city if available
+  if (userData['city'] != null && userData['city'].toString().isNotEmpty) {
+    addressParts.add(userData['city']);
+  }
+  
+  // Add region if available
+  if (userData['region'] != null && userData['region'].toString().isNotEmpty) {
+    addressParts.add(userData['region']);
+  }
+  
+  // Add country if available
+  if (userData['country'] != null && userData['country'].toString().isNotEmpty) {
+    addressParts.add(userData['country']);
+  }
+  
+  return addressParts.join(', ');
 }

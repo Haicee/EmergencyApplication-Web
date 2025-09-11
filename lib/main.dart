@@ -971,11 +971,11 @@ class LoginPageDetails extends State<LoginPage>
                                   userData = Map<String, dynamic>.from(firstChild.value as Map);
                                 }
                               } catch (e) {
-                                print('Error parsing user data: $e');
+                                debugPrint('Error parsing user data: $e');
                               }
 
                               if (userData != null && userData['password'] == userPassword) {
-                                print('Citizen login successful for: $username'); // Debug log
+                                debugPrint('Citizen login successful for: $username'); // Debug log
                                 
                                 // Save login state for citizen
                                 final prefs = await SharedPreferences.getInstance();
@@ -983,7 +983,7 @@ class LoginPageDetails extends State<LoginPage>
                                 await prefs.setString('userType', 'citizen');
                                 
                                 // Login successful
-                                print('Navigating to HomePage...'); // Debug log
+                                debugPrint('Navigating to HomePage...'); // Debug log
                                 Navigator.pushReplacement(
                                   context,
                                   MaterialPageRoute(

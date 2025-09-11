@@ -1,13 +1,13 @@
 /// Agora configuration constants for the emergency app
 class AgoraConfig {
   // App ID for testing - replace with your actual App ID
-  static const String appId = '5b4c251d850a452d9783de64d8f098d4';
+  static const String appId = '7d2f10a871174d0cb736b6aa70aac070';
   
   // Channel name for testing
   static const String testChannelName = 'test_emergency_channel';
   
-  // Production channel name (when using tokens)
-  static const String productionChannelName = 'emergency';
+  // Production channel name (matches your Agora Console channel)
+  static const String productionChannelName = 'EmergencyApp';
   
   // Token for production (should be generated server-side)
   static const String? productionToken = null; // Set to null for testing

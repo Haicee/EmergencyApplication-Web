@@ -53,7 +53,7 @@ class _EmergencyCallBackScreenState extends State<EmergencyCallBackScreen> {
   }
 
   Future<void> _initAgora() async {
-    final String channelName = widget.callId; // Use callId for unique channel
+    final String channelName = AgoraConfig.getChannelName(isTesting: true); // Use centralized configuration
     var micStatus = await Permission.microphone.status;
     if (!micStatus.isGranted) {
       debugPrint("Agora initialization skipped: Microphone permission not granted.");

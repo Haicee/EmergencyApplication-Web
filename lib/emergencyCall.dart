@@ -264,7 +264,7 @@ class _EmergencyCallScreenState extends State<EmergencyCallScreen> {
 
   // Join the channel with voice-only options
   await _engine.joinChannel(
-    token: AgoraConfig.getToken(isTesting: true), // Use centralized token configuration
+    token: AgoraConfig.getToken(isTesting: true), // Use production token
     channelId: channelName, // Use centralized channel name
     uid: 0,
     options: const ChannelMediaOptions(

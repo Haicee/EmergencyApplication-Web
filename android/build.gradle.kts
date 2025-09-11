@@ -42,6 +42,11 @@ subprojects {
                         sourceCompatibility = JavaVersion.VERSION_17
                         targetCompatibility = JavaVersion.VERSION_17
                     }
+                    
+                    // Fix namespace issues for third-party packages
+                    if (project.name == "telephony") {
+                        namespace = "com.shounakmulay.telephony"
+                    }
                 }
             }
         }

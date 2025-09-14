@@ -13,6 +13,9 @@ import 'services/geofence_manager.dart';
 import 'services/emergency_mode_service.dart'; // Import the emergency mode service
 import 'services/offline_emergency_service.dart'; // Import the offline emergency service
 import 'services/offline_map_service.dart'; // Import the offline map service
+import 'package:permission_handler/permission_handler.dart'; // Import permission handler
+import 'package:connectivity_plus/connectivity_plus.dart'; // Import connectivity
+import 'services/sync_service.dart'; // Import the new SyncService
 
 class ResponsiveHomePage extends StatelessWidget {
   final String username;
@@ -121,6 +124,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   final EmergencyModeService _emergencyModeService = EmergencyModeService(); // Initialize the emergency mode service
   final OfflineEmergencyService _offlineEmergencyService = OfflineEmergencyService(); // Initialize the offline emergency service
   final OfflineMapService _offlineMapService = OfflineMapService(); // Initialize the offline map service
+  final SyncService _syncService = SyncService(); // Initialize the new SyncService
 
   double _downloadProgress = 0.0;
   bool _isDownloadingMap = false;
@@ -142,8 +146,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       _checkProfileCompletion();
     });
 
-    // Start downloading the offline map region for General Santos City
-    _startMapDownload();
+    // Initialize the sync service to handle background updates
+    _syncService.initialize();
+
+    // Listen for map download progress updates for the UI
+    _listenForMapDownloadProgress();
   }
 
   Future<void> _checkProfileCompletion() async {
@@ -288,6 +295,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _controller.dispose();
     _mapDownloadSubscription?.cancel();
     _offlineMapService.dispose();
+    _syncService.dispose(); // Dispose the sync service
     super.dispose();
   }
 
@@ -973,7 +981,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _holdTimer?.cancel();
   }
 
-  void _startMapDownload() {
+  /// Sets up a listener for the map download progress stream to update the UI.
+  void _listenForMapDownloadProgress() async {
+    // Only start the download if we have an internet connection
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      debugPrint('No internet connection. Skipping offline map download.');
+      return;
+    }
+
     _mapDownloadSubscription = _offlineMapService.downloadProgressStream.listen(
       (progress) {
         if (mounted) {
@@ -1000,7 +1016,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         debugPrint('Error during map download: $error');
       },
     );
-    _offlineMapService.startOfflineMapDownload();
   }
 
   Widget _buildDownloadProgressIndicator() {
@@ -1013,12 +1028,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       color: const Color.fromARGB(255, 255, 255, 255),
       child: Row(
         children: [
-          CircularProgressIndicator(value: _downloadProgress / 100, backgroundColor: const Color.fromARGB(255, 85, 85, 85)),
+          CircularProgressIndicator(value: _downloadProgress / 100, backgroundColor: const Color.fromARGB(255, 81, 255, 37)),
           SizedBox(width: 16),
           Expanded(
             child: Text(
-              'Downloading map for offline use... ${_downloadProgress.toStringAsFixed(0)}%',
-              style: TextStyle(color: const Color.fromARGB(255, 37, 37, 37), fontWeight: FontWeight.bold),
+              'Downloading data... ${_downloadProgress.toStringAsFixed(0)}%',
+              style: TextStyle(color: const Color.fromARGB(255, 81, 255, 37), fontWeight: FontWeight.bold),
             ),
           ),
         ],

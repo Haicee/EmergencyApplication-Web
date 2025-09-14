@@ -1,18 +1,36 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class OfflineMapService {
   static final OfflineMapService _instance = OfflineMapService._internal();
   factory OfflineMapService() => _instance;
   OfflineMapService._internal();
 
+  static const String _mapDownloadedKey = 'offline_map_downloaded';
+
   final StreamController<double> _progressController = StreamController<double>.broadcast();
   Stream<double> get downloadProgressStream => _progressController.stream;
 
   bool _isDownloading = false;
 
+  Future<bool> isMapDownloaded() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_mapDownloadedKey) ?? false;
+  }
+
+  Future<void> _setMapAsDownloaded() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_mapDownloadedKey, true);
+  }
+
   Future<void> startOfflineMapDownload() async {
+    if (await isMapDownloaded()) {
+      debugPrint('Offline map has already been downloaded.');
+      return;
+    }
+
     if (_isDownloading) {
       debugPrint('Offline map download already in progress.');
       return;
@@ -48,6 +66,7 @@ class OfflineMapService {
             debugPrint('Offline map download progress: ${status.progress}%');
           } else if (status is Success) {
             debugPrint('Offline map download successful!');
+            _setMapAsDownloaded(); // Set the flag on successful download
             _progressController.add(100.0);
             _progressController.close();
           } else {

@@ -195,10 +195,11 @@ class OfflineEmergencyService {
     DateTime now = DateTime.now();
     String timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     
-    String message = '''🚨 EMERGENCY ALERT
+    String message = '''🚨 EMERGENCY ALERT 🚨
 Location: $latitude, $longitude
 User: $userName
 Time: $timeStr
+Link: https://maps.google.com/?q=$latitude,$longitude
 Need assistance immediately.''';
 
     if (additionalInfo != null && additionalInfo.isNotEmpty) {

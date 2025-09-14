@@ -5,9 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../models/station.dart';
 import '../utils/circle_polygon.dart';
-
-
-
+import '../services/offline_emergency_service.dart'; // For connectivity check
 
 class CallMapScreen extends StatefulWidget {
   final List<Station> stations;
@@ -29,10 +27,23 @@ class CallMapScreen extends StatefulWidget {
 
 class _CallMapScreenState extends State<CallMapScreen> {
   MapLibreMapController? _mapController;
-  
+  final String _mapStyleUrl = 'https://api.maptiler.com/maps/streets-v2/style.json?key=VhMngqsXGbpDhosqRB2c';
+
   @override
   void initState() {
     super.initState();
+    _configureMapForOfflineUse();
+  }
+
+  Future<void> _configureMapForOfflineUse() async {
+    final offlineService = OfflineEmergencyService();
+    final hasInternet = await offlineService.hasInternetConnection();
+
+    if (!hasInternet) {
+      debugPrint('Device is offline. Officer map attempting to use offline map.');
+    } else {
+      debugPrint('Device is online. Officer map using online map.');
+    }
   }
 
   Future<void> _onMapCreated(MapLibreMapController controller) async {
@@ -159,7 +170,7 @@ class _CallMapScreenState extends State<CallMapScreen> {
                         : const LatLng(12.8797, 121.7740), // Philippines center
                 zoom: 14.0,
               ),
-              styleString: 'https://api.maptiler.com/maps/streets-v2/style.json?key=VhMngqsXGbpDhosqRB2c',
+              styleString: _mapStyleUrl,
               myLocationEnabled: false, // Disable officer location tracking during calls
               myLocationTrackingMode: MyLocationTrackingMode.none,
             ),

@@ -12,7 +12,7 @@ import 'screens/map_screen.dart';
 import 'services/geofence_manager.dart';
 import 'services/emergency_mode_service.dart'; // Import the emergency mode service
 import 'services/offline_emergency_service.dart'; // Import the offline emergency service
-
+import 'services/offline_map_service.dart'; // Import the offline map service
 
 class ResponsiveHomePage extends StatelessWidget {
   final String username;
@@ -120,7 +120,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   final GeofenceManager _geofenceManager = GeofenceManager();
   final EmergencyModeService _emergencyModeService = EmergencyModeService(); // Initialize the emergency mode service
   final OfflineEmergencyService _offlineEmergencyService = OfflineEmergencyService(); // Initialize the offline emergency service
+  final OfflineMapService _offlineMapService = OfflineMapService(); // Initialize the offline map service
 
+  double _downloadProgress = 0.0;
+  bool _isDownloadingMap = false;
+  StreamSubscription? _mapDownloadSubscription;
 
   @override
   void initState() {
@@ -137,6 +141,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     Future.delayed(Duration(milliseconds: 10000), () {
       _checkProfileCompletion();
     });
+
+    // Start downloading the offline map region for General Santos City
+    _startMapDownload();
   }
 
   Future<void> _checkProfileCompletion() async {
@@ -279,6 +286,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _incomingCallSub?.cancel();
     _geofenceManager.dispose();
     _controller.dispose();
+    _mapDownloadSubscription?.cancel();
+    _offlineMapService.dispose();
     super.dispose();
   }
 
@@ -735,8 +744,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           }
         }
 
+        // If not in any geofence, find the nearest station as a fallback
         if (targetStation == null) {
           debugPrint("⚠️ User not in any geofence. Will use nearest station logic.");
+          targetStation = await _findNearestStation(position, _stations);
         }
 
         // Step 2: Route based on connectivity
@@ -875,10 +886,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     try {
       debugPrint("📱 Starting offline emergency SMS process...");
       
-      // Use the offline emergency service
+      // The offline service will find the nearest station internally
       final result = await _offlineEmergencyService.handleOfflineEmergency(
         userName: widget.username,
         additionalInfo: "Emergency assistance needed",
+        userPosition: position, // Corrected parameter name
       );
 
       debugPrint("📋 SMS Emergency result: ${result.toString()}");
@@ -932,12 +944,86 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
+  Future<Station?> _findNearestStation(Position userLocation, List<Station> stations) async {
+    Station? nearestStation;
+    double minDistance = double.infinity;
+
+    for (var station in stations) {
+      double distance = Geolocator.distanceBetween(
+        userLocation.latitude,
+        userLocation.longitude,
+        station.latitude,
+        station.longitude,
+      );
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestStation = station;
+      }
+    }
+
+    return nearestStation;
+  }
+
   void _onTapUp(TapUpDetails details) {
     _holdTimer?.cancel();
   }
 
   void _onTapCancel() {
     _holdTimer?.cancel();
+  }
+
+  void _startMapDownload() {
+    _mapDownloadSubscription = _offlineMapService.downloadProgressStream.listen(
+      (progress) {
+        if (mounted) {
+          setState(() {
+            _isDownloadingMap = true;
+            _downloadProgress = progress;
+          });
+        }
+      },
+      onDone: () {
+        if (mounted) {
+          setState(() {
+            _isDownloadingMap = false;
+            _downloadProgress = 100.0;
+          });
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() {
+            _isDownloadingMap = false;
+          });
+        }
+        debugPrint('Error during map download: $error');
+      },
+    );
+    _offlineMapService.startOfflineMapDownload();
+  }
+
+  Widget _buildDownloadProgressIndicator() {
+    if (!_isDownloadingMap || _downloadProgress >= 100) {
+      return SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: const Color.fromARGB(255, 255, 255, 255),
+      child: Row(
+        children: [
+          CircularProgressIndicator(value: _downloadProgress / 100, backgroundColor: const Color.fromARGB(255, 85, 85, 85)),
+          SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              'Downloading map for offline use... ${_downloadProgress.toStringAsFixed(0)}%',
+              style: TextStyle(color: const Color.fromARGB(255, 37, 37, 37), fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -1079,226 +1165,233 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
         ),
       ),
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color.fromARGB(255, 255, 51, 48), // Light reddish pink
-              Color.fromARGB(255, 255, 218, 217),
-              Color.fromARGB(255, 255, 255, 255), // Existing light color
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 25.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-
-                Text
-                (
-                    "Registered Stations",
-                    style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: const Color.fromARGB(255, 255, 255, 255),
-                        
-                    )
+      body: Column(
+        children: [
+          _buildDownloadProgressIndicator(),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              height: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.fromARGB(255, 255, 51, 48), // Light reddish pink
+                    Color.fromARGB(255, 255, 218, 217),
+                    Color.fromARGB(255, 255, 255, 255), // Existing light color
+                  ],
                 ),
-                
-                SizedBox(height: 8,),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 25.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
 
-                // Top Section: Carousel of Stations
-                SizedBox(
-                  height: 250,
-                  child: _isLoadingStations
-                      ? Center(child: CircularProgressIndicator())
-                      : _stations.isEmpty
-                          ? Center(
-                              child: Text(
-                                'No stations available',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            )
-                          : PageView.builder(
-                              itemCount: _stations.length,
-                              controller: PageController(viewportFraction: .9),
-                              itemBuilder: (context, index) {
-                                final station = _stations[index];
-                                return Container(
-                                  margin: EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-                                  child: Card(
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    elevation: 5,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(top: 22, left: 22, right: 22, bottom: 22),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Container(
-                                                padding: EdgeInsets.all(8),
-                                                decoration: BoxDecoration(
-                                                  gradient: LinearGradient(
-                                                    colors: [Color(0xFF1976D2), Color(0xFFD32F2F)],
-                                                    begin: Alignment.centerLeft,
-                                                    end: Alignment.centerRight,
-                                                  ),
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
-                                                child: Icon(
-                                                  Icons.local_police,
-                                                  color: Colors.white,
-                                                  size: 32,
-                                                ),
-                                              ),
-                                              SizedBox(width: 14),
-                                              Expanded(
-                                                child: Text(
-                                                  station.name,
-                                                  style: TextStyle(
-                                                    fontSize: 24,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: const Color.fromARGB(255, 61, 61, 61),
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: 16),
-                                          Row(
-                                            children: [
-                                              Icon(Icons.location_on, size: 30, color: const Color.fromARGB(255, 255, 92, 92)),
-                                              SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  station.fullAddress,
-                                                  style: TextStyle(
-                                                    color: const Color.fromARGB(255, 59, 59, 59),
-                                                    fontSize: 18,
-                                                  ),
-                                                  maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: 12),
-                                          Row(
-                                            children: [
-                                              Icon(Icons.phone, size: 30, color: const Color.fromARGB(255, 107, 117, 255)),
-                                              SizedBox(width: 8),
-                                              Text(
-                                                station.hotline,
-                                                style: TextStyle(
-                                                  fontSize: 18,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: const Color.fromARGB(255, 59, 59, 59),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
+                      Text
+                      (
+                          "Registered Stations",
+                          style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                              color: const Color.fromARGB(255, 255, 255, 255),
+                              
+                          )
+                      ),
+                      
+                      SizedBox(height: 8,),
+
+                      // Top Section: Carousel of Stations
+                      SizedBox(
+                        height: 250,
+                        child: _isLoadingStations
+                            ? Center(child: CircularProgressIndicator())
+                            : _stations.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      'No stations available',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        color: Colors.white,
                                       ),
                                     ),
+                                  )
+                                : PageView.builder(
+                                    itemCount: _stations.length,
+                                    controller: PageController(viewportFraction: .9),
+                                    itemBuilder: (context, index) {
+                                      final station = _stations[index];
+                                      return Container(
+                                        margin: EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+                                        child: Card(
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(18),
+                                          ),
+                                          elevation: 5,
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(top: 22, left: 22, right: 22, bottom: 22),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Container(
+                                                      padding: EdgeInsets.all(8),
+                                                      decoration: BoxDecoration(
+                                                        gradient: LinearGradient(
+                                                          colors: [Color(0xFF1976D2), Color(0xFFD32F2F)],
+                                                          begin: Alignment.centerLeft,
+                                                          end: Alignment.centerRight,
+                                                        ),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Icon(
+                                                        Icons.local_police,
+                                                        color: Colors.white,
+                                                        size: 32,
+                                                      ),
+                                                    ),
+                                                    SizedBox(width: 14),
+                                                    Expanded(
+                                                      child: Text(
+                                                        station.name,
+                                                        style: TextStyle(
+                                                          fontSize: 24,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: const Color.fromARGB(255, 61, 61, 61),
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                SizedBox(height: 16),
+                                                Row(
+                                                  children: [
+                                                    Icon(Icons.location_on, size: 30, color: const Color.fromARGB(255, 255, 92, 92)),
+                                                    SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Text(
+                                                        station.fullAddress,
+                                                        style: TextStyle(
+                                                          color: const Color.fromARGB(255, 59, 59, 59),
+                                                          fontSize: 18,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                SizedBox(height: 12),
+                                                Row(
+                                                  children: [
+                                                    Icon(Icons.phone, size: 30, color: const Color.fromARGB(255, 107, 117, 255)),
+                                                    SizedBox(width: 8),
+                                                    Text(
+                                                      station.hotline,
+                                                      style: TextStyle(
+                                                        fontSize: 18,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: const Color.fromARGB(255, 59, 59, 59),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
-                                );
-                              },
-                            ),
-                ),
-                
-                SizedBox( height: 35,),
+                      ),
+                      
+                      SizedBox( height: 35,),
 
-                // Middle Section: Emergency Button and Instruction Text
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GestureDetector(
-                      onTapDown: _onTapDown,
-                      onTapUp: _onTapUp,
-                      onTapCancel: _onTapCancel,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: <Widget>[
-                          AnimatedBuilder(
-                            animation: _controller,
-                            builder: (context, child) {
-                              return CustomPaint(
-                                size: const Size(300, 300),
-                                painter: RipplePainter(progress: _controller.value),
-                              );
-                            },
-                          ),
-                          Container(
-                            width: 200,
-                            height: 200,
-                            decoration: BoxDecoration( 
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color.fromARGB(255, 255, 73, 70).withOpacity(0.4),
-                                  blurRadius: 30.0,
-                                  spreadRadius: 5.0,
+                      // Middle Section: Emergency Button and Instruction Text
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTapDown: _onTapDown,
+                            onTapUp: _onTapUp,
+                            onTapCancel: _onTapCancel,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: <Widget>[
+                                AnimatedBuilder(
+                                  animation: _controller,
+                                  builder: (context, child) {
+                                    return CustomPaint(
+                                      size: const Size(300, 300),
+                                      painter: RipplePainter(progress: _controller.value),
+                                    );
+                                  },
                                 ),
-                                BoxShadow(
-                                  color: const Color.fromARGB(255, 255, 73, 70).withOpacity(0.6),
-                                  blurRadius: 20.0,
-                                  spreadRadius: 2.0,
+                                Container(
+                                  width: 200,
+                                  height: 200,
+                                  decoration: BoxDecoration( 
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color.fromARGB(255, 255, 73, 70).withOpacity(0.4),
+                                        blurRadius: 30.0,
+                                        spreadRadius: 5.0,
+                                      ),
+                                      BoxShadow(
+                                        color: const Color.fromARGB(255, 255, 73, 70).withOpacity(0.6),
+                                        blurRadius: 20.0,
+                                        spreadRadius: 2.0,
+                                      ),
+                                    ],
+                                  ),
+                                  child: ElevatedButton(
+                                    onPressed: () {}, // Keep enabled for color, handled by GestureDetector
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color.fromARGB(255, 255, 62, 59),
+                                      foregroundColor: Colors.white,
+                                      padding: EdgeInsets.all(20),
+                                    ),
+                                    child: Icon(
+                                      Icons.phone,
+                                      color: Colors.white,
+                                      size: 100,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
-                            child: ElevatedButton(
-                              onPressed: () {}, // Keep enabled for color, handled by GestureDetector
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color.fromARGB(255, 255, 62, 59),
-                                foregroundColor: Colors.white,
-                                padding: EdgeInsets.all(20),
-                              ),
-                              child: Icon(
-                                Icons.phone,
-                                color: Colors.white,
-                                size: 100,
-                              ),
+                          ),
+                          
+                          Text(
+                            _isEmergencyInProgress 
+                              ? "Processing Emergency..." 
+                              : "Press and Hold to Call Emergency",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: _isEmergencyInProgress ? Colors.orange : Colors.black54,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    
-                    Text(
-                      _isEmergencyInProgress 
-                        ? "Processing Emergency..." 
-                        : "Press and Hold to Call Emergency",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: _isEmergencyInProgress ? Colors.orange : Colors.black54,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
 
-                // Empty container at the bottom to help with centering the middle content
-                Container(height: 1),
-              ],
+                      // Empty container at the bottom to help with centering the middle content
+                      Container(height: 1),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

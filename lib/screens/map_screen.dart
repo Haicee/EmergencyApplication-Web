@@ -7,6 +7,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import '../models/station.dart';
 import '../services/geofence_manager.dart';
 import '../utils/circle_polygon.dart';
+import '../services/offline_emergency_service.dart';
 
 class MapScreen extends StatefulWidget {
   final List<Station> stations;
@@ -22,12 +23,30 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription<GeofenceRegion>? _geofenceSubscription;
   MapLibreMapController? _mapController;
   Position? _currentPosition;
+  final String _mapStyleUrl = 'https://api.maptiler.com/maps/streets-v2/style.json?key=VhMngqsXGbpDhosqRB2c';
 
   @override
   void initState() {
     super.initState();
+    _configureMapForOfflineUse();
     _initializeGeofencing();
     _getCurrentLocation();
+  }
+
+  Future<void> _configureMapForOfflineUse() async {
+    final offlineService = OfflineEmergencyService();
+    final hasInternet = await offlineService.hasInternetConnection();
+
+    if (!hasInternet) {
+      // If offline, point to the local offline style. This assumes the region was downloaded.
+      // MapLibre will automatically use the downloaded region if the style matches.
+      debugPrint('Device is offline. Attempting to use offline map.');
+      // The style URL must match the one used for downloading.
+      // MapLibre handles the rest automatically.
+    } else {
+      debugPrint('Device is online. Using online map.');
+    }
+    // No need to change the URL, MapLibre handles it if the style matches the downloaded one.
   }
 
   Future<void> _initializeGeofencing() async {
@@ -158,7 +177,7 @@ class _MapScreenState extends State<MapScreen> {
               : const LatLng(12.8797, 121.7740), // Philippines center
           zoom: _currentPosition != null ? 15.0 : 5.0,
         ),
-        styleString: 'https://api.maptiler.com/maps/streets-v2/style.json?key=VhMngqsXGbpDhosqRB2c',
+        styleString: _mapStyleUrl,
         myLocationEnabled: true,
         myLocationTrackingMode: MyLocationTrackingMode.tracking,
       ),

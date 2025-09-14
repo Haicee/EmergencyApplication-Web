@@ -565,28 +565,17 @@ Need assistance immediately.''';
         };
       }
 
-      // Step 2: Try cached current station first (fastest)
-      Map<String, dynamic>? targetStation = await getCachedCurrentStation();
-      
-      // Step 3: If no cached station and we have position, try geofence detection
-      if (targetStation == null && position != null) {
-        print('No cached station found. Trying geofence detection...');
-        targetStation = await findStationByGeofence(
-          position.latitude,
-          position.longitude,
-        );
-      }
+      Map<String, dynamic>? targetStation;
 
-      // Step 4: If no geofence match and we have position, fallback to nearest station
-      if (targetStation == null && position != null) {
-        print('No geofence match found. Falling back to nearest station...');
+      // Step 1: If we have a position, find the nearest station.
+      if (position != null) {
         targetStation = await findNearestStation(
           position.latitude,
           position.longitude,
         );
       }
 
-      // Step 5: If still no station, get any available station from cache
+      // Step 2: If still no station (e.g., location failed), get any available station from cache as a last resort.
       if (targetStation == null) {
         print('No station found via location. Getting first available station...');
         List<Map<String, dynamic>> stations = await getCachedStations();

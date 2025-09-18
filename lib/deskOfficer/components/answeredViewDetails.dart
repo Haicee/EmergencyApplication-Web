@@ -91,10 +91,6 @@ class AnsweredViewDetails extends StatelessWidget {
                           );
                         },
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.message_rounded, color: Colors.white),
-                        onPressed: () {},
-                      ),
                     ],
                   ),
                   const SizedBox(height: 6),

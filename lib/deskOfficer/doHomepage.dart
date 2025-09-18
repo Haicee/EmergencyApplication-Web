@@ -582,6 +582,31 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
           ),
         ],
       ),
+      // Add floating action button for map
+      floatingActionButton: Positioned(
+        bottom: 20,
+        left: 20,
+        child: FloatingActionButton(
+          onPressed: _goToOfficerMapScreen,
+          backgroundColor: Color.fromARGB(255, 75, 84, 255),
+          foregroundColor: Colors.white,
+          tooltip: 'View Map & Search Coordinates',
+          child: Icon(Icons.map, size: 28),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+    );
+  }
+
+  void _goToOfficerMapScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OfficerMapScreen(
+          stations: _stations,
+          officerName: widget.username,
+        ),
+      ),
     );
   }
 

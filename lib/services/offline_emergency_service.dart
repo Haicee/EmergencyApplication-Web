@@ -199,8 +199,7 @@ class OfflineEmergencyService {
 Location: $latitude, $longitude
 User: $userName
 Time: $timeStr
-Link: https://maps.google.com/?q=$latitude,$longitude
-Need assistance immediately.''';
+Instruction: Copy the location and paste it on the map.''';
 
     if (additionalInfo != null && additionalInfo.isNotEmpty) {
       message += '\nInfo: $additionalInfo';

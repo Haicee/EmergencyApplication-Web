@@ -6,8 +6,6 @@ import './App.css';
 // Import placeholder pages
 import ManageUsers from "./ManageUsers";
 import EmergencyCalls from "./EmergencyCalls";
-import SecurityBackups from "./SecurityBackups";
-import SystemLogs from "./SystemLogs";
 import Layout from "./Layout";
 import Login from "./Login";
 import ReportStatus from "./ReportStatus";
@@ -30,8 +28,6 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="manage-users" element={<ManageUsers />} />
           <Route path="emergency-calls" element={<EmergencyCalls />} />
-          <Route path="security-backups" element={<SecurityBackups />} />
-          <Route path="system-logs" element={<SystemLogs />} />
           <Route path="report-status" element={<ReportStatus />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Route>

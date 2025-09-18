@@ -1,62 +1,208 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ClockIcon, CheckCircleIcon, XCircleIcon, DownloadIcon, SearchIcon, TrashIcon, PencilIcon } from '@heroicons/react/solid';
+import { ref, onValue, off } from 'firebase/database';
+import { database } from './firebase';
 
-
-const callsData = [
-  {
-    id: "EC-001",
-    caller: "Juan Dela Cruz",
-    callerType: "Citizen",
-    time: "2024-01-20 13:45",
-    location: "Lagao, General Santos City",
-    status: "Ongoing",
-  },
-  {
-    id: "EC-002",
-    caller: "Maria Garcia",
-    callerType: "Citizen",
-    time: "2024-01-20 10:30",
-    location: "City Heights, General Santos City",
-    status: "Answered",
-  },
-  {
-    id: "EC-003",
-    caller: "Mark Miller",
-    callerType: "Citizen",
-    time: "2024-01-19 18:20",
-    location: "Calumpang, General Santos City",
-    status: "Missed",
-  },
-];
+// Helper to pretty-print status labels for display
+const formatStatusLabel = (status) => {
+  const raw = (status || '').toString().trim();
+  const s = raw.toLowerCase();
+  if (s === 'missed') return 'Missed Calls';
+  // Title-case words (handles single words or phrases)
+  return raw
+    .split(/\s+/)
+    .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : '')
+    .join(' ');
+};
 
 const StatusBadge = ({ status }) => {
   const baseClasses = "px-2 py-1 text-xs font-medium rounded-full";
-  switch (status) {
-    case "Ongoing":
-      return <span className={`${baseClasses} bg-orange-100 text-orange-600`}>{status}</span>;
-    case "Answered":
-      return <span className={`${baseClasses} bg-green-100 text-green-600`}>{status}</span>;
-    case "Missed":
-      return <span className={`${baseClasses} bg-red-100 text-red-600`}>{status}</span>;
-    default:
-      return <span className={`${baseClasses} bg-gray-100 text-gray-600`}>{status}</span>;
-  }
+  const s = (status || '').toString().toLowerCase();
+  // Map common raw statuses to colors
+  if (s.includes('ring')) return <span className={`${baseClasses} bg-orange-100 text-orange-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('end')) return <span className={`${baseClasses} bg-green-100 text-green-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('declin')) return <span className={`${baseClasses} bg-red-100 text-red-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('cancel')) return <span className={`${baseClasses} bg-gray-100 text-gray-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('time')) return <span className={`${baseClasses} bg-red-100 text-red-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('miss')) return <span className={`${baseClasses} bg-red-100 text-red-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('ongoing')) return <span className={`${baseClasses} bg-orange-100 text-orange-600`}>{formatStatusLabel(status)}</span>;
+  if (s.includes('answered')) return <span className={`${baseClasses} bg-green-100 text-green-600`}>{formatStatusLabel(status)}</span>;
+  return <span className={`${baseClasses} bg-gray-100 text-gray-600`}>{formatStatusLabel(status)}</span>;
 };
 
+const StatCard = ({ title, value, icon }) => (
+  <div className="bg-white p-5 rounded-lg shadow flex justify-between items-center">
+    <div>
+      <div className="text-sm text-gray-500">{title}</div>
+      <div className="text-2xl font-bold text-gray-800">{value}</div>
+    </div>
+    <div className="bg-gray-100 p-3 rounded-full">
+      {icon}
+    </div>
+  </div>
+);
 
 export default function EmergencyCalls() {
   const [activeFilter, setActiveFilter] = useState("All Calls");
+  const [activeCalls, setActiveCalls] = useState([]); // Ongoing
+  const [answeredCalls, setAnsweredCalls] = useState([]);
+  const [missedCalls, setMissedCalls] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [officersIndex, setOfficersIndex] = useState({}); // username/code -> { name, station }
+
+  // Helper: format timestamp if numeric
+  const formatTime = (t) => {
+    if (!t && t !== 0) return '';
+    if (typeof t === 'number') {
+      try {
+        const d = new Date(t);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mi = String(d.getMinutes()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+      } catch {
+        return String(t);
+      }
+    }
+    return String(t);
+  };
+
+  // Resolve officer code/username to display name
+  const resolveOfficerName = (code) => {
+    if (!code) return '';
+    const entry = officersIndex[code];
+    if (entry?.name) return entry.name;
+    // Fallback: code as name
+    return code;
+  };
+
+  // Helper: map snapshot object to UI rows
+  const mapCalls = (obj, category) => {
+    const entries = Object.entries(obj || {});
+    return entries.map(([key, value]) => {
+      const callerName = value?.caller || value?.callerName || value?.name || value?.userName || value?.username || 'Unknown';
+      const callerType = value?.callerType || value?.type || 'Citizen';
+      const time = formatTime(value?.time || value?.timestamp || value?.dateTime || value?.createdAt);
+      const location = value?.location || [value?.streetAddress, value?.barangay, value?.city].filter(Boolean).join(', ') || value?.address || '';
+      const station = value?.station || '';
+
+      // Receiver logic by category and raw status
+      const rawStatus = (value?.status || '').toString().toLowerCase();
+      let receiverName = '';
+      let receiverType = '';
+      if (category === 'Answered') {
+        const officerCode = value?.officer || value?.answeredBy || value?.handledBy;
+        receiverName = resolveOfficerName(officerCode);
+        receiverType = receiverName ? 'Officer' : '';
+      } else if (category === 'Missed') {
+        if (rawStatus === 'declined') {
+          const officerCode = value?.declinedBy || value?.missedBy;
+          receiverName = resolveOfficerName(officerCode);
+          receiverType = receiverName ? 'Officer' : '';
+        } else if (rawStatus === 'cancelled' || rawStatus === 'timeout') {
+          receiverName = 'Not Connected';
+          receiverType = '';
+        } else {
+          // fallback
+          receiverName = 'Not Connected';
+          receiverType = '';
+        }
+      } else if (category === 'Ongoing') {
+        receiverName = 'Waiting...';
+        receiverType = '';
+      }
+
+      const displayStatus = value?.status || (category === 'Ongoing' ? 'ringing' : category);
+
+      return {
+        id: value?.id || key,
+        caller: callerName,
+        callerType: callerType,
+        time: time,
+        location: location,
+        station: station,
+        receiver: receiverName,
+        receiverType: receiverType,
+        status: displayStatus,
+      };
+    });
+  };
+
+  // Subscribe to Firebase paths
+  useEffect(() => {
+    const activeRef = ref(database, 'StationsCallLogs/ActiveCalls');
+    const ansRef = ref(database, 'StationsCallLogs/AnsweredCalls');
+    const missRef = ref(database, 'StationsCallLogs/MissedCalls');
+
+    const unsubActive = onValue(activeRef, (snapshot) => {
+      setActiveCalls(mapCalls(snapshot.val(), 'Ongoing'));
+    });
+
+    const unsubAnswered = onValue(ansRef, (snapshot) => {
+      setAnsweredCalls(mapCalls(snapshot.val(), 'Answered'));
+    });
+
+    const unsubMissed = onValue(missRef, (snapshot) => {
+      setMissedCalls(mapCalls(snapshot.val(), 'Missed'));
+    });
+
+    // Also build officers index
+    const officersRef = ref(database, 'Desk Officer');
+    const unsubOfficers = onValue(officersRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      // Flatten as username/code -> { name, station }
+      const index = {};
+      Object.entries(data).forEach(([stationName, stationData]) => {
+        if (!stationData || typeof stationData !== 'object') return;
+        Object.entries(stationData).forEach(([key, val]) => {
+          // Skip metadata keys; assume officer objects contain a username
+          if (val && typeof val === 'object' && (val.username || val.name)) {
+            const code = (val.username || val.name);
+            index[code] = { name: val.username || val.name, station: stationName };
+          }
+        });
+      });
+      setOfficersIndex(index);
+    });
+
+    // Cleanup
+    return () => {
+      try { off(activeRef); } catch {}
+      try { off(ansRef); } catch {}
+      try { off(missRef); } catch {}
+      try { off(officersRef); } catch {}
+      if (typeof unsubActive === 'function') unsubActive();
+      if (typeof unsubAnswered === 'function') unsubAnswered();
+      if (typeof unsubMissed === 'function') unsubMissed();
+      if (typeof unsubOfficers === 'function') unsubOfficers();
+    };
+  }, []);
+
+  const allCalls = [...activeCalls, ...answeredCalls, ...missedCalls];
 
   const handleFilterClick = (filter) => {
     setActiveFilter(filter);
   };
 
-  const filteredCalls = callsData.filter(call => {
-    if (activeFilter === 'All Calls') return true;
-    if (activeFilter === 'Active') return call.status === 'Ongoing';
-    if (activeFilter === 'Missed Calls') return call.status === 'Missed';
-    if (activeFilter === 'Answered Calls') return call.status === 'Answered';
-    return true;
+  const baseFiltered = (() => {
+    if (activeFilter === 'Active Calls') return activeCalls;
+    if (activeFilter === 'Missed Calls') return missedCalls;
+    if (activeFilter === 'Answered Calls') return answeredCalls;
+    return allCalls;
+  })();
+
+  const filteredCalls = baseFiltered.filter((call) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      String(call.id).toLowerCase().includes(q) ||
+      String(call.caller).toLowerCase().includes(q) ||
+      String(call.station || '').toLowerCase().includes(q) ||
+      String(call.receiver || '').toLowerCase().includes(q) ||
+      String(call.time).toLowerCase().includes(q)
+    );
   });
 
   const getButtonClasses = (filter) => {
@@ -71,9 +217,9 @@ export default function EmergencyCalls() {
     <div className="p-6 bg-gray-50 min-h-full">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         {/* Stat Cards */}
-        <StatCard title="Ongoing Calls" value="12" icon={<ClockIcon className="h-6 w-6 text-orange-500" />} />
-        <StatCard title="Answered Calls" value="45" icon={<CheckCircleIcon className="h-6 w-6 text-green-500" />} />
-        <StatCard title="Missed Calls" value="3" icon={<XCircleIcon className="h-6 w-6 text-red-500" />} />
+        <StatCard title="Ongoing Calls" value={String(activeCalls.length)} icon={<ClockIcon className="h-6 w-6 text-orange-500" />} />
+        <StatCard title="Answered Calls" value={String(answeredCalls.length)} icon={<CheckCircleIcon className="h-6 w-6 text-green-500" />} />
+        <StatCard title="Missed Calls" value={String(missedCalls.length)} icon={<XCircleIcon className="h-6 w-6 text-red-500" />} />
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow">
@@ -81,7 +227,7 @@ export default function EmergencyCalls() {
             {/* Filter Tabs */}
             <div className="flex space-x-2 mb-4 md:mb-0">
                 <button className={getButtonClasses("All Calls")} onClick={() => handleFilterClick("All Calls")}>All Calls</button>
-                <button className={getButtonClasses("Active")} onClick={() => handleFilterClick("Active")}>Active</button>
+                <button className={getButtonClasses("Active Calls")} onClick={() => handleFilterClick("Active Calls")}>Active Calls</button>
                 <button className={getButtonClasses("Missed Calls")} onClick={() => handleFilterClick("Missed Calls")}>Missed Calls</button>
                 <button className={getButtonClasses("Answered Calls")} onClick={() => handleFilterClick("Answered Calls")}>Answered Calls</button>
             </div>
@@ -92,7 +238,7 @@ export default function EmergencyCalls() {
             </button>
             <div className="relative">
                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400"/>
-                <input type="text" placeholder="Search here..." className="pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"/>
+                <input type="text" placeholder="Search here..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"/>
             </div>
           </div>
         </div>
@@ -104,8 +250,9 @@ export default function EmergencyCalls() {
               <tr>
                 <th scope="col" className="px-6 py-3">Call ID</th>
                 <th scope="col" className="px-6 py-3">Caller</th>
-                <th scope="col" className="px-6 py-3">Time</th>
-                <th scope="col" className="px-6 py-3">Location</th>
+                <th scope="col" className="px-6 py-3">Receiver</th>
+                <th scope="col" className="px-6 py-3">Station</th>
+                <th scope="col" className="px-6 py-3">Date and Time</th>
                 <th scope="col" className="px-6 py-3">Status</th>
                 <th scope="col" className="px-6 py-3">Actions</th>
               </tr>
@@ -118,8 +265,12 @@ export default function EmergencyCalls() {
                     <div>{call.caller}</div>
                     <div className="text-xs text-gray-500">{call.callerType}</div>
                   </td>
+                  <td className="px-6 py-4">
+                    <div>{call.receiver || ''}</div>
+                    <div className="text-xs text-gray-500">{call.receiverType}</div>
+                  </td>
+                  <td className="px-6 py-4">{call.station || ''}</td>
                   <td className="px-6 py-4">{call.time}</td>
-                  <td className="px-6 py-4">{call.location}</td>
                   <td className="px-6 py-4">
                     <StatusBadge status={call.status} />
                   </td>
@@ -136,15 +287,3 @@ export default function EmergencyCalls() {
     </div>
   );
 }
-
-const StatCard = ({ title, value, icon }) => (
-    <div className="bg-white p-5 rounded-lg shadow flex justify-between items-center">
-        <div>
-            <div className="text-sm text-gray-500">{title}</div>
-            <div className="text-2xl font-bold text-gray-800">{value}</div>
-        </div>
-        <div className="bg-gray-100 p-3 rounded-full">
-            {icon}
-        </div>
-    </div>
-); 

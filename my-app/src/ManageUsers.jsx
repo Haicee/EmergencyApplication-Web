@@ -17,8 +17,6 @@ export default function ManageUsers() {
   
   // Stations state
   const [stations, setStations] = useState([]);
-  const [showAddStation, setShowAddStation] = useState(false);
-  const [newStation, setNewStation] = useState({ name: '', address: '' });
   const [editStationIdx, setEditStationIdx] = useState(null);
   const [editStation, setEditStation] = useState({ name: '', address: '' });
   const [deleteStationIdx, setDeleteStationIdx] = useState(null);
@@ -444,12 +442,6 @@ export default function ManageUsers() {
           </div>
           {activeTab === "Desk Officers" && (
             <div className="flex gap-2 items-center">
-              <button
-                className="flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm font-medium"
-                onClick={() => setShowAddStation(true)}
-              >
-                + Add Station
-              </button>
               <input
                 type="text"
                 className="rounded border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
@@ -709,12 +701,7 @@ export default function ManageUsers() {
           </div>
         </div>
       )}
-      {showAddStation && (
-        <AddStationModal
-          onClose={() => setShowAddStation(false)}
-          onSuccess={async () => { await loadData(); setShowAddStation(false); setNewStation({ name: '' }); }}
-        />
-      )}
+      
       {editStationIdx !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
           <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative animate-fadeIn">

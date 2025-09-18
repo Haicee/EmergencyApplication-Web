@@ -55,7 +55,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 mb-1">Total Users</p>
-              <p className="text-3xl font-bold text-gray-900">245</p>
+              <p className="text-3xl font-bold text-gray-900">5</p>
               <p className="text-xs text-gray-500 mt-1">Active users</p>
             </div>
             <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
@@ -74,7 +74,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 mb-1">Emergency Calls</p>
-              <p className="text-3xl font-bold text-gray-900">3</p>
+              <p className="text-3xl font-bold text-gray-900">125</p>
               <p className="text-xs text-gray-500 mt-1">In progress</p>
             </div>
             <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center relative">

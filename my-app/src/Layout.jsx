@@ -5,8 +5,7 @@ const PAGE_TITLES = {
   "/": "Dashboard",
   "/manage-users": "Manage Users",
   "/emergency-calls": "Emergency Calls",
-  "/security-backups": "Security & Backups",
-  "/system-logs": "System Performance & Activity Logs",
+  "/report-status": "Report Status",
 };
 
 export default function Layout({ onLogout }) {
@@ -41,8 +40,6 @@ export default function Layout({ onLogout }) {
               <NavLink to="/" end className={({isActive}) => `flex items-center gap-2 px-4 py-2 rounded-r-full font-medium ${isActive ? 'bg-red-50 text-red-600' : 'text-gray-700 hover:bg-gray-100'}`}>Dashboard</NavLink>
               <NavLink to="/manage-users" className={({isActive}) => `flex items-center gap-2 px-4 py-2 rounded-r-full font-medium ${isActive ? 'bg-red-50 text-red-600' : 'text-gray-700 hover:bg-gray-100'}`}>Manage Users</NavLink>
               <NavLink to="/emergency-calls" className={({isActive}) => `flex items-center gap-2 px-4 py-2 rounded-r-full font-medium ${isActive ? 'bg-red-50 text-red-600' : 'text-gray-700 hover:bg-gray-100'}`}>Emergency Calls Logs</NavLink>
-              <NavLink to="/security-backups" className={({isActive}) => `flex items-center gap-2 px-4 py-2 rounded-r-full font-medium ${isActive ? 'bg-red-50 text-red-600' : 'text-gray-700 hover:bg-gray-100'}`}>Security & Backups</NavLink>
-              <NavLink to="/system-logs" className={({isActive}) => `flex items-center gap-2 px-4 py-2 rounded-r-full font-medium ${isActive ? 'bg-red-50 text-red-600' : 'text-gray-700 hover:bg-gray-100'}`}>System Performance & Activity Logs</NavLink>
               <NavLink to="/report-status" className={({isActive}) => `flex items-center gap-2 px-4 py-2 rounded-r-full font-medium ${isActive ? 'bg-red-50 text-red-600' : 'text-gray-700 hover:bg-gray-100'}`}>Report Status</NavLink>
             </nav>
           )}
@@ -88,4 +85,4 @@ export default function Layout({ onLogout }) {
       </div>
     </div>
   );
-} 
+}

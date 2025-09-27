@@ -158,6 +158,55 @@ class ApiService {
       method: 'DELETE',
     });
   }
+
+  // Responders - mirror Desk Officers API
+  // Get all responder stations
+  async getResponderStations() {
+    return this.request('/responders');
+  }
+
+  // Get all responders for a station
+  async getRespondersByStation(station) {
+    return this.request(`/responders/${encodeURIComponent(station)}`);
+  }
+
+  // Add a responder under a station
+  async addResponder(station, responderData) {
+    return this.request(`/responders/${encodeURIComponent(station)}`, {
+      method: 'POST',
+      body: JSON.stringify(responderData),
+    });
+  }
+
+  // Update a responder
+  async updateResponder(station, username, responderData) {
+    return this.request(`/responders/${encodeURIComponent(station)}/${encodeURIComponent(username)}`, {
+      method: 'PUT',
+      body: JSON.stringify(responderData),
+    });
+  }
+
+  // Delete a responder
+  async deleteResponder(station, username) {
+    return this.request(`/responders/${encodeURIComponent(station)}/${encodeURIComponent(username)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Update responder station (metadata)
+  async updateResponderStation(station, data) {
+    return this.request(`/responders/${encodeURIComponent(station)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Delete a responder station
+  async deleteResponderStation(station) {
+    return this.request(`/responders/${encodeURIComponent(station)}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
-export default new ApiService(); 
+export default new ApiService();

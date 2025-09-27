@@ -54,6 +54,27 @@ export default function ManageUsers() {
   const [addDeskOfficerError, setAddDeskOfficerError] = useState(null);
   const [showAddDeskOfficerPassword, setShowAddDeskOfficerPassword] = useState(false);
 
+  // Responders state (mirrors Desk Officers)
+  const [responderStations, setResponderStations] = useState([]);
+  const [selectedResponderStation, setSelectedResponderStation] = useState('');
+  const [responders, setResponders] = useState([]);
+  const [responderStationData, setResponderStationData] = useState({});
+  const [addResponderStation, setAddResponderStation] = useState(null);
+  const [addResponderForm, setAddResponderForm] = useState({ username: '', status: 'Available', password: '', fullName: '', contactNumber: '', });
+  const [addResponderLoading, setAddResponderLoading] = useState(false);
+  const [addResponderError, setAddResponderError] = useState(null);
+  const [showAddResponderPassword, setShowAddResponderPassword] = useState(false);
+
+  const [editResponder, setEditResponder] = useState(null); // {station, oldUsername}
+  const [editResponderForm, setEditResponderForm] = useState({});
+  const [editResponderLoading, setEditResponderLoading] = useState(false);
+  const [editResponderError, setEditResponderError] = useState(null);
+  const [showEditResponderPassword, setShowEditResponderPassword] = useState(false);
+
+  const [deleteResponder, setDeleteResponder] = useState(null); // {station, username}
+  const [deleteResponderLoading, setDeleteResponderLoading] = useState(false);
+  const [deleteResponderError, setDeleteResponderError] = useState(null);
+
   // Load data on component mount
   useEffect(() => {
     loadData();
@@ -124,6 +145,66 @@ export default function ManageUsers() {
       setDeskOfficerStationData({});
     }
   }, [activeTab, deskOfficerStations]);
+
+  // Fetch Responder stations when tab changes to Responders
+  useEffect(() => {
+    if (activeTab === 'Responders') {
+      setLoading(true);
+      setError(null);
+      apiService.getResponderStations()
+        .then(stations => {
+          setResponderStations(stations);
+          if (stations.length > 0) {
+            setSelectedResponderStation(stations[0]);
+          } else {
+            setSelectedResponderStation('');
+            setResponders([]);
+          }
+        })
+        .catch(err => setError(err.message))
+        .finally(() => setLoading(false));
+    }
+  }, [activeTab]);
+
+  // Fetch responders when selected responder station changes
+  useEffect(() => {
+    if (activeTab === 'Responders' && selectedResponderStation) {
+      setLoading(true);
+      setError(null);
+      apiService.getRespondersByStation(selectedResponderStation)
+        .then(respondersObj => {
+          const responders = Object.values(respondersObj || {}).filter(v => v && typeof v === 'object' && v.username);
+          setResponders(responders);
+        })
+        .catch(err => setError('Failed to fetch responders: ' + err.message))
+        .finally(() => setLoading(false));
+    } else if (activeTab === 'Responders') {
+      setResponders([]);
+    }
+  }, [activeTab, selectedResponderStation]);
+
+  // Fetch responders for all stations when responderStations changes
+  useEffect(() => {
+    if (activeTab === 'Responders' && responderStations.length > 0) {
+      setLoading(true);
+      setError(null);
+      Promise.all(
+        responderStations.map(station =>
+          apiService.getRespondersByStation(station)
+            .then(stationObj => ({ station, stationData: stationObj || {} }))
+            .catch(() => ({ station, stationData: {} }))
+        )
+      ).then(results => {
+        const data = {};
+        results.forEach(({ station, stationData }) => {
+          data[station] = stationData;
+        });
+        setResponderStationData(data);
+      }).finally(() => setLoading(false));
+    } else if (activeTab === 'Responders') {
+      setResponderStationData({});
+    }
+  }, [activeTab, responderStations]);
 
   const loadData = async () => {
     setLoading(true);
@@ -420,6 +501,176 @@ export default function ManageUsers() {
     }
   };
 
+  // Open edit responder modal
+  const openEditResponder = (data) => {
+    setEditResponder(data);
+    setEditResponderForm({
+      username: data.username,
+      status: data.status,
+      password: data.password,
+      fullName: data.fullName,
+      contactNumber: data.contactNumber,
+    });
+    setEditResponderError(null);
+  };
+
+  // Close edit responder modal
+  const closeEditResponder = () => {
+    setEditResponder(null);
+    setEditResponderForm({});
+    setEditResponderError(null);
+  };
+
+  // Handle edit responder form change
+  const handleEditResponderChange = e => {
+    const { name, value } = e.target;
+    setEditResponderForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Handle edit responder form submit
+  const handleEditResponderSubmit = async e => {
+    e.preventDefault();
+    setEditResponderLoading(true);
+    setEditResponderError(null);
+    try {
+      const payload = {
+        username: editResponderForm.username,
+        status: editResponderForm.status,
+        password: editResponderForm.password,
+        fullName: editResponderForm.fullName,
+        contactNumber: editResponderForm.contactNumber,
+      };
+      await apiService.updateResponder(editResponder.station, editResponder.oldUsername, payload);
+      if (editResponder.oldUsername !== editResponderForm.username) {
+        await apiService.deleteResponder(editResponder.station, editResponder.oldUsername);
+      }
+      // Refresh responders for all stations
+      if (responderStations.length > 0) {
+        Promise.all(
+          responderStations.map(station =>
+            apiService.getRespondersByStation(station).then(respondersObj => ({
+              station,
+              responders: Object.values(respondersObj || {}).filter(v => v && typeof v === 'object' && v.username)
+            }))
+          )
+        ).then(results => {
+          const data = {};
+          results.forEach(({ station, responders }) => {
+            data[station] = responders;
+          });
+          setResponderStationData(data);
+        });
+      }
+      closeEditResponder();
+    } catch (err) {
+      setEditResponderError('Failed to update responder: ' + err.message);
+    } finally {
+      setEditResponderLoading(false);
+    }
+  };
+
+  // Open delete responder modal
+  const openDeleteResponder = (data) => {
+    setDeleteResponder(data);
+    setDeleteResponderError(null);
+  };
+
+  // Close delete responder modal
+  const closeDeleteResponder = () => {
+    setDeleteResponder(null);
+    setDeleteResponderError(null);
+  };
+
+  // Handle delete responder confirm
+  const handleDeleteResponder = async () => {
+    setDeleteResponderLoading(true);
+    setDeleteResponderError(null);
+    try {
+      await apiService.deleteResponder(deleteResponder.station, deleteResponder.username);
+      // Refresh responders for all stations
+      if (responderStations.length > 0) {
+        Promise.all(
+          responderStations.map(station =>
+            apiService.getRespondersByStation(station).then(respondersObj => ({
+              station,
+              responders: Object.values(respondersObj || {}).filter(v => v && typeof v === 'object' && v.username)
+            }))
+          )
+        ).then(results => {
+          const data = {};
+          results.forEach(({ station, responders }) => {
+            data[station] = responders;
+          });
+          setResponderStationData(data);
+        });
+      }
+      closeDeleteResponder();
+    } catch (err) {
+      setDeleteResponderError('Failed to delete responder: ' + err.message);
+    } finally {
+      setDeleteResponderLoading(false);
+    }
+  };
+
+  // Open add responder modal
+  const openAddResponder = (station) => {
+    setAddResponderStation(station);
+    setAddResponderForm({ username: '', status: 'Available', password: '', fullName: '', contactNumber: '', });
+    setAddResponderError(null);
+  };
+
+  // Close add responder modal
+  const closeAddResponder = () => {
+    setAddResponderStation(null);
+    setAddResponderForm({ username: '', status: 'Available', password: '', fullName: '', contactNumber: '', });
+    setAddResponderError(null);
+  };
+
+  // Handle add responder form change
+  const handleAddResponderChange = e => {
+    const { name, value } = e.target;
+    setAddResponderForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Handle add responder form submit
+  const handleAddResponderSubmit = async e => {
+    e.preventDefault();
+    setAddResponderLoading(true);
+    setAddResponderError(null);
+    try {
+      const responderData = {
+        username: addResponderForm.username,
+        status: addResponderForm.status,
+        password: addResponderForm.password,
+        fullName: addResponderForm.fullName,
+        contactNumber: addResponderForm.contactNumber,
+      };
+      await apiService.addResponder(addResponderStation, responderData);
+      // Refresh responders for all stations
+      if (responderStations.length > 0) {
+        Promise.all(
+          responderStations.map(station =>
+            apiService.getRespondersByStation(station).then(respondersObj => ({
+              station,
+              responders: Object.values(respondersObj || {}).filter(v => v && typeof v === 'object' && v.username)
+            }))
+          )
+        ).then(results => {
+          const data = {};
+          results.forEach(({ station, responders }) => {
+            data[station] = responders;
+          });
+          setResponderStationData(data);
+        });
+      }
+      closeAddResponder();
+    } catch (err) {
+      setAddResponderError('Failed to add responder: ' + err.message);
+    } finally {
+      setAddResponderLoading(false);
+    }
+  };
+
   return (
     <div className="p-6">
       
@@ -438,6 +689,12 @@ export default function ManageUsers() {
               onClick={() => setActiveTab("Desk Officers")}
             >
               Desk Officers
+            </button>
+            <button
+              className={`px-4 py-2 font-medium border-b-2 transition text-sm ${activeTab === "Responders" ? "border-red-500 text-red-600" : "border-transparent text-gray-500"}`}
+              onClick={() => setActiveTab("Responders")}
+            >
+              Responders
             </button>
           </div>
           {activeTab === "Desk Officers" && (
@@ -604,6 +861,94 @@ export default function ManageUsers() {
             )}
           </div>
         )}
+        {/* Responders Tab - mirrors Desk Officers */}
+        {activeTab === "Responders" && (
+          <div className="flex flex-col gap-4">
+            {loading ? (
+              <div className="text-center py-4">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+                <p className="mt-2 text-gray-600">Loading stations...</p>
+              </div>
+            ) : responderStations.length === 0 ? (
+              <div className="text-center text-gray-400 py-8">No stations found.</div>
+            ) : (
+              responderStations.map((station, idx) => {
+                const stationData = responderStationData[station] || {};
+                const { streetAddress, city, region, ...membersObj } = stationData;
+                const members = Object.entries(membersObj)
+                  .filter(([key, value]) => value && typeof value === 'object' && value.username)
+                  .map(([key, value]) => value);
+                const addressString = [streetAddress, city, region].filter(Boolean).join(', ');
+                return (
+                  <div key={station} className="bg-gray-50 rounded-xl shadow p-4 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-4">
+                        <span className="inline-flex items-center justify-center w-9 h-9 rounded-full font-bold text-white text-lg bg-green-600">{station.split(' ').map(w => w[0]).join('').toUpperCase()}</span>
+                        <div className="font-semibold text-gray-800 text-lg">{station}</div>
+                      </div>
+                      <div className="flex items-center gap-4 text-gray-500 text-sm">
+                        {addressString && <span>{addressString}</span>}
+                        <button className="ml-2 text-blue-600 hover:underline text-sm font-medium" onClick={() => openEditStation(idx)}>Edit</button>
+                        <button className="ml-2 text-red-500 hover:underline text-sm font-medium" onClick={() => setDeleteStationIdx(idx)}>Delete</button>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full table-fixed text-sm text-left">
+                        <colgroup>
+                          <col style={{ width: '30%' }} />
+                          <col style={{ width: '25%' }} />
+                          <col style={{ width: '20%' }} />
+                          <col style={{ width: '25%' }} />
+                        </colgroup>
+                        <thead>
+                          <tr className="bg-white text-gray-600 uppercase text-xs">
+                            <th className="px-4 py-2 font-medium truncate">Responder</th>
+                            <th className="px-4 py-2 font-medium truncate">Contact Number</th>
+                            <th className="px-4 py-2 font-medium truncate">Status</th>
+                            <th className="px-4 py-2 font-medium truncate">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {members.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-center text-gray-400">No responders found.</td>
+                            </tr>
+                          ) : (
+                            members.map((member, mIdx) => (
+                              <tr key={member.username || mIdx} className="border-b hover:bg-gray-50">
+                                <td className="px-4 py-2 truncate">{member.fullName}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">{member.contactNumber}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">
+                                  <span className={
+                                    member.status === 'Unavailable'
+                                      ? 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600'
+                                      : 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-600'
+                                  }>
+                                    {member.status || 'Available'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 whitespace-nowrap">
+                                  <button className="text-blue-600 hover:underline text-xs font-medium mr-2" onClick={() => openEditResponder({ station, oldUsername: member.username, ...member })}>Update</button>
+                                  <span className="text-gray-400">|</span>
+                                  <button className="text-red-500 hover:underline text-xs font-medium ml-2" onClick={() => openDeleteResponder({ station, username: member.username })}>Delete</button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex justify-end mt-2">
+                      <button className="flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm font-medium" onClick={() => setAddResponderStation(station)}>
+                        + Add Responder
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
       {/* Edit User Modal */}
       {editUser && (
@@ -712,16 +1057,24 @@ export default function ManageUsers() {
                 e.preventDefault();
                 setLoading(true);
                 try {
-                  const stationToUpdate = deskOfficerStations[editStationIdx];
+                  const stationToUpdate = activeTab === 'Desk Officers' ? deskOfficerStations[editStationIdx] : responderStations[editStationIdx];
                   // Format region
                   const formattedRegion = editStation.region && editStation.region.trim().toLowerCase().startsWith('region ')
                     ? editStation.region.trim()
                     : `Region ${editStation.region.trim()}`;
-                  await apiService.updateDeskOfficerStation(stationToUpdate, {
-                    streetAddress: editStation.streetAddress,
-                    city: editStation.city,
-                    region: formattedRegion
-                  });
+                  if (activeTab === 'Desk Officers') {
+                    await apiService.updateDeskOfficerStation(stationToUpdate, {
+                      streetAddress: editStation.streetAddress,
+                      city: editStation.city,
+                      region: formattedRegion
+                    });
+                  } else {
+                    await apiService.updateResponderStation(stationToUpdate, {
+                      streetAddress: editStation.streetAddress,
+                      city: editStation.city,
+                      region: formattedRegion
+                    });
+                  }
                   await loadData();
                   setEditStationIdx(null);
                 } catch (err) {
@@ -768,8 +1121,10 @@ export default function ManageUsers() {
                 />
               </div>
               <div className="flex justify-end gap-2 mt-2">
-                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700" onClick={() => setEditStationIdx(null)}>Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded bg-blue-500 text-white font-semibold">Save Changes</button>
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700" onClick={() => setEditStationIdx(null)} disabled={loading}>Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded bg-red-500 text-white font-semibold" disabled={loading}>
+                  {loading ? 'Updating...' : 'Update'}
+                </button>
               </div>
             </form>
           </div>
@@ -1003,7 +1358,7 @@ export default function ManageUsers() {
       )}
       {deleteDeskOfficer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm relative animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative animate-fadeIn">
             <h2 className="text-lg font-semibold mb-4 text-gray-700">Delete Desk Officer</h2>
             <p className="mb-6">Are you sure you want to delete <span className="font-bold">{deleteDeskOfficer.username}</span>?</p>
             {deleteDeskOfficerError && (
@@ -1070,6 +1425,118 @@ export default function ManageUsers() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Add Responder Modal */}
+      {addResponderStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative animate-fadeIn">
+            <h2 className="text-lg font-semibold mb-4 text-gray-700">Add Responder</h2>
+            <form className="flex flex-col gap-4" onSubmit={handleAddResponderSubmit}>
+              <div>
+                <label className="block text-xs font-medium mb-1">Username</label>
+                <input name="username" className="w-full border rounded px-3 py-2 text-sm" value={addResponderForm.username} onChange={handleAddResponderChange} required />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Password</label>
+                <div className="relative">
+                  <input name="password" className="w-full border rounded px-3 py-2 text-sm pr-16" type={showAddResponderPassword ? 'text' : 'password'} value={addResponderForm.password} onChange={handleAddResponderChange} />
+                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowAddResponderPassword(v => !v)} tabIndex={-1}>
+                    {showAddResponderPassword ? (<EyeOffIcon className="h-5 w-5" />) : (<EyeIcon className="h-5 w-5" />)}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Full Name</label>
+                <input name="fullName" className="w-full border rounded px-3 py-2 text-sm" value={addResponderForm.fullName} onChange={handleAddResponderChange} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Contact Number</label>
+                <input name="contactNumber" className="w-full border rounded px-3 py-2 text-sm" value={addResponderForm.contactNumber} onChange={handleAddResponderChange} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Status</label>
+                <select name="status" className="w-full border rounded px-3 py-2 text-sm" value={addResponderForm.status} onChange={handleAddResponderChange}>
+                  <option value="Available">Available</option>
+                  <option value="Unavailable">Unavailable</option>
+                </select>
+              </div>
+              {addResponderError && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded">{addResponderError}</div>
+              )}
+              <div className="flex justify-end gap-2 mt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700" onClick={() => setAddResponderStation(null)} disabled={addResponderLoading}>Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded bg-red-500 text-white font-semibold" disabled={addResponderLoading}>
+                  {addResponderLoading ? 'Adding...' : 'Add Responder'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Edit Responder Modal */}
+      {editResponder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative animate-fadeIn">
+            <h2 className="text-lg font-semibold mb-4 text-gray-700">Edit Responder</h2>
+            <form className="flex flex-col gap-4" onSubmit={handleEditResponderSubmit}>
+              <div>
+                <label className="block text-xs font-medium mb-1">Username</label>
+                <input name="username" className="w-full border rounded px-3 py-2 text-sm" value={editResponderForm.username || ''} onChange={handleEditResponderChange} required />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Password</label>
+                <div className="relative">
+                  <input name="password" className="w-full border rounded px-3 py-2 text-sm pr-16" type={showEditResponderPassword ? 'text' : 'password'} value={editResponderForm.password || ''} onChange={handleEditResponderChange} />
+                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" onClick={() => setShowEditResponderPassword(v => !v)} tabIndex={-1}>
+                    {showEditResponderPassword ? (<EyeOffIcon className="h-5 w-5" />) : (<EyeIcon className="h-5 w-5" />)}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Full Name</label>
+                <input name="fullName" className="w-full border rounded px-3 py-2 text-sm" value={editResponderForm.fullName || ''} onChange={handleEditResponderChange} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Contact Number</label>
+                <input name="contactNumber" className="w-full border rounded px-3 py-2 text-sm" value={editResponderForm.contactNumber || ''} onChange={handleEditResponderChange} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Status</label>
+                <select name="status" className="w-full border rounded px-3 py-2 text-sm" value={editResponderForm.status || 'Available'} onChange={handleEditResponderChange}>
+                  <option value="Available">Available</option>
+                  <option value="Unavailable">Unavailable</option>
+                </select>
+              </div>
+              {editResponderError && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded">{editResponderError}</div>
+              )}
+              <div className="flex justify-end gap-2 mt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700" onClick={() => setEditResponder(null)} disabled={editResponderLoading}>Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded bg-blue-500 text-white font-semibold" disabled={editResponderLoading}>
+                  {editResponderLoading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Delete Responder Modal */}
+      {deleteResponder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm relative animate-fadeIn">
+            <h2 className="text-lg font-semibold mb-4 text-gray-700">Delete Responder</h2>
+            <p className="mb-6">Are you sure you want to delete <span className="font-bold">{deleteResponder.username}</span>?</p>
+            {deleteResponderError && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4">{deleteResponderError}</div>
+            )}
+            <div className="flex justify-end gap-2 mt-2">
+              <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700" onClick={() => setDeleteResponder(null)} disabled={deleteResponderLoading}>Cancel</button>
+              <button type="button" className="px-4 py-2 rounded bg-red-500 text-white font-semibold" onClick={handleDeleteResponder} disabled={deleteResponderLoading}>
+                {deleteResponderLoading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

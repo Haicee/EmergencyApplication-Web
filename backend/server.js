@@ -6,6 +6,7 @@ const morgan = require('morgan');
 
 const usersRoutes = require('./routes/users');
 const deskOfficersRoutes = require('./routes/deskOfficers');
+const respondersRoutes = require('./routes/responders');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -20,6 +21,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/users', usersRoutes);
 app.use('/api/desk-officers', deskOfficersRoutes);
+app.use('/api/responders', respondersRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -37,7 +39,9 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/health',
-      users: '/api/users'
+      users: '/api/users',
+      deskOfficers: '/api/desk-officers',
+      responders: '/api/responders'
     }
   });
 });

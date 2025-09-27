@@ -154,7 +154,9 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
             MaterialPageRoute(
               builder: (context) => IncomingCallPage(
                   name: callData['caller'],
-                  photoUrl: callData['photoUrl'] ?? 'assets/default_avatar.png',
+                  photoUrl: _isValidHttpUrl(callData['photoUrl'])
+                      ? callData['photoUrl']
+                      : 'https://via.placeholder.com/100',
                   callId: callId,
                   station: _stationName,
                          officerId: widget.officerId,
@@ -805,7 +807,11 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
               children: [
                 CircleAvatar(
                   radius: 25,
-                  backgroundImage: NetworkImage(callData['photoUrl'] ?? 'https://via.placeholder.com/50'),
+                  backgroundImage: NetworkImage(
+                    _isValidHttpUrl(callData['photoUrl'])
+                        ? callData['photoUrl']
+                        : 'https://via.placeholder.com/50',
+                  ),
                   backgroundColor: Colors.grey[200],
                 ),
                 SizedBox(width: 16),
@@ -852,7 +858,9 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                                 MaterialPageRoute(
                                   builder: (context) => IncomingCallPage(
                           name: callData['caller'],
-                          photoUrl: callData['photoUrl'] ?? 'assets/default_avatar.png',
+                          photoUrl: _isValidHttpUrl(callData['photoUrl'])
+                              ? callData['photoUrl']
+                              : 'https://via.placeholder.com/100',
                           callId: callId,
                           station: _stationName,
                          officerId: widget.officerId,
@@ -886,7 +894,9 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                         MaterialPageRoute(
                           builder: (context) => IncomingCallPage(
                             name: callData['caller'],
-                            photoUrl: callData['photoUrl'] ?? 'assets/default_avatar.png',
+                            photoUrl: _isValidHttpUrl(callData['photoUrl'])
+                                ? callData['photoUrl']
+                                : 'https://via.placeholder.com/100',
                             callId: callId,
                             station: _stationName,
                          officerId: widget.officerId,
@@ -951,7 +961,11 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
           children: [
             CircleAvatar(
               radius: 25,
-              backgroundImage: NetworkImage(callData['photoUrl'] ?? 'https://via.placeholder.com/50'),
+              backgroundImage: NetworkImage(
+                _isValidHttpUrl(callData['photoUrl'])
+                    ? callData['photoUrl']
+                    : 'https://via.placeholder.com/50',
+              ),
               backgroundColor: Colors.grey[200],
             ),
             SizedBox(width: 16),
@@ -1019,7 +1033,9 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                       builder: (ctx) {
                         return MissedViewDetails(
                           name: callData['caller'] ?? 'Unknown Caller',
-                          photoUrl: callData['photoUrl'] ?? 'https://via.placeholder.com/100',
+                          photoUrl: _isValidHttpUrl(callData['photoUrl'])
+                              ? callData['photoUrl']
+                              : 'https://via.placeholder.com/100',
                           gender: callData['gender'] ?? 'Unknown',
                           mobile: callData['mobile'] ?? 'Not Provided',
                           address: callData['address'] ?? 'Not Specified',
@@ -1076,7 +1092,11 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
           children: [
             CircleAvatar(
               radius: 25,
-              backgroundImage: NetworkImage(callData['photoUrl'] ?? 'https://via.placeholder.com/50'),
+              backgroundImage: NetworkImage(
+                _isValidHttpUrl(callData['photoUrl'])
+                    ? callData['photoUrl']
+                    : 'https://via.placeholder.com/50',
+              ),
               backgroundColor: Colors.grey[200],
             ),
             SizedBox(width: 16),
@@ -1154,7 +1174,9 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                       builder: (ctx) {
                         return AnsweredViewDetails(
                           name: callData['caller'] ?? 'Unknown Caller',
-                          photoUrl: callData['photoUrl'] ?? 'https://via.placeholder.com/100',
+                          photoUrl: _isValidHttpUrl(callData['photoUrl'])
+                              ? callData['photoUrl']
+                              : 'https://via.placeholder.com/100',
                           gender: callData['gender'] ?? 'Unknown',
                           mobile: callData['mobile'] ?? 'Not Provided',
                           address: callData['address'] ?? 'Not Specified',
@@ -1166,6 +1188,10 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                           answeredAt: ans,
                           endedAt: end,
                           officerId: widget.officerId, // Pass officer ID
+                          citizenLatitude: double.tryParse((callData['citizenLatitude'] ?? '0').toString()) ?? 0.0,
+                          citizenLongitude: double.tryParse((callData['citizenLongitude'] ?? '0').toString()) ?? 0.0,
+                          birthDate: (callData['birthDate'] ?? callData['birthdate'] ?? 'Not Specified').toString(),
+                          stations: _stations,
                         );
                       },
                     );
@@ -1339,5 +1365,11 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
     final minutes = duration.inMinutes;
     final seconds = duration.inSeconds % 60;
     return '${minutes}m ${seconds}s';
+  }
+
+  bool _isValidHttpUrl(String? url) {
+    if (url == null) return false;
+    final uri = Uri.parse(url);
+    return uri.scheme == 'http' || uri.scheme == 'https';
   }
 }

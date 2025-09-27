@@ -185,11 +185,17 @@ class _CallMapScreenState extends State<CallMapScreen> {
 class OfficerMapScreen extends StatefulWidget {
   final List<Station> stations;
   final String officerName;
+  final double? callerLatitude;
+  final double? callerLongitude;
+  final String? callerName;
 
   const OfficerMapScreen({
     Key? key,
     required this.stations,
     required this.officerName,
+    this.callerLatitude,
+    this.callerLongitude,
+    this.callerName,
   }) : super(key: key);
 
   @override
@@ -308,8 +314,24 @@ class _OfficerMapScreenState extends State<OfficerMapScreen> {
       );
     }
 
-    // Center map on current location if available, but don't add a pin
-    if (_currentPosition != null) {
+    // If caller coordinates provided, add caller pin and focus
+    if (widget.callerLatitude != null && widget.callerLongitude != null) {
+      controller.addSymbol(SymbolOptions(
+        geometry: LatLng(widget.callerLatitude!, widget.callerLongitude!),
+        iconImage: 'user_pin',
+        iconSize: 0.25,
+        iconAnchor: "bottom",
+      ));
+      controller.animateCamera(CameraUpdate.newLatLngZoom(
+        LatLng(widget.callerLatitude!, widget.callerLongitude!), 15.0,
+      ));
+      // Also set as searched location so the Directions button appears
+      setState(() {
+        _searchedLatLng = LatLng(widget.callerLatitude!, widget.callerLongitude!);
+      });
+    }
+    // Else center map on current location if available, but don't add a pin
+    else if (_currentPosition != null) {
       controller.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(_currentPosition!.latitude, _currentPosition!.longitude), 
@@ -607,6 +629,20 @@ class _OfficerMapScreenState extends State<OfficerMapScreen> {
         title: const Text('Officer Map'),
         backgroundColor: const Color.fromARGB(255, 75, 84, 255),
         foregroundColor: Colors.white,
+        actions: [
+          if (widget.callerLatitude != null && widget.callerLongitude != null)
+            IconButton(
+              tooltip: 'Focus on caller',
+              icon: const Icon(Icons.place_outlined),
+              onPressed: () {
+                if (_mapController != null) {
+                  _mapController!.animateCamera(CameraUpdate.newLatLngZoom(
+                    LatLng(widget.callerLatitude!, widget.callerLongitude!), 16.0,
+                  ));
+                }
+              },
+            ),
+        ],
       ),
       body: Stack(
         children: [
@@ -614,11 +650,13 @@ class _OfficerMapScreenState extends State<OfficerMapScreen> {
           MapLibreMap(
             onMapCreated: _onMapCreated,
             initialCameraPosition: CameraPosition(
-              target: _currentPosition != null
-                  ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
-                  : widget.stations.isNotEmpty
-                      ? LatLng(widget.stations.first.latitude, widget.stations.first.longitude)
-                      : const LatLng(12.8797, 121.7740), // Philippines center
+              target: (widget.callerLatitude != null && widget.callerLongitude != null)
+                  ? LatLng(widget.callerLatitude!, widget.callerLongitude!)
+                  : _currentPosition != null
+                      ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
+                      : widget.stations.isNotEmpty
+                          ? LatLng(widget.stations.first.latitude, widget.stations.first.longitude)
+                          : const LatLng(12.8797, 121.7740), // Philippines center
               zoom: 14.0,
             ),
             styleString: _mapStyleUrl,

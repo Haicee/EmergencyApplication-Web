@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../callBack.dart';
+import '../../models/station.dart';
+import '../../screens/officer_map_screen.dart';
 
 // AnsweredViewDetails: full page showing personal info + call details
-class AnsweredViewDetails extends StatelessWidget {
+class AnsweredViewDetails extends StatefulWidget {
   final String name;
   final String photoUrl;
   final String gender;
@@ -16,6 +19,10 @@ class AnsweredViewDetails extends StatelessWidget {
   final int answeredAt; // when desk officer answered (ms)
   final int endedAt; // when call ended (ms) - optional 0 if ongoing
   final String? officerId; // Add officer ID
+  final double citizenLatitude;
+  final double citizenLongitude;
+  final String birthDate;
+  final List<Station> stations; // Pass stations for map overlays
 
   const AnsweredViewDetails({
     Key? key,
@@ -32,13 +39,46 @@ class AnsweredViewDetails extends StatelessWidget {
     required this.answeredAt,
     required this.endedAt,
     this.officerId, // Add officer ID parameter
+    required this.citizenLatitude,
+    required this.citizenLongitude,
+    required this.birthDate,
+    required this.stations,
   }) : super(key: key);
 
   @override
+  State<AnsweredViewDetails> createState() => _AnsweredViewDetailsState();
+}
+
+class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
+  bool _isSending = false;
+  bool _isSent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAlreadySent();
+  }
+
+  Future<void> _checkAlreadySent() async {
+    try {
+      final ref = FirebaseDatabase.instance.ref(
+        'Responders/${widget.station}/ReceivedCallDetails/Assigned/${widget.callId}',
+      );
+      final snap = await ref.get();
+      if (!mounted) return;
+      if (snap.exists) {
+        setState(() => _isSent = true);
+      }
+    } catch (_) {
+      // Silently ignore; default is not sent
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final callDuration = _formatCallDuration(answeredAt, endedAt);
-    final dateStr = _formatDate(DateTime.fromMillisecondsSinceEpoch(timestamp));
-    final timeStr = _formatTime(DateTime.fromMillisecondsSinceEpoch(timestamp));
+    final callDuration = _formatCallDuration(widget.answeredAt, widget.endedAt);
+    final dateStr = _formatDate(DateTime.fromMillisecondsSinceEpoch(widget.timestamp));
+    final timeStr = _formatTime(DateTime.fromMillisecondsSinceEpoch(widget.timestamp));
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -72,6 +112,20 @@ class AnsweredViewDetails extends StatelessWidget {
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                       ),
                       const Spacer(),
+                      if (_isSent)
+                        const Icon(Icons.check_circle, color: Colors.white, size: 28)
+                      else if (_isSending)
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      else
+                        IconButton(
+                          icon: const Icon(Icons.send, color: Colors.white),
+                          onPressed: (_isSending || _isSent) ? null : _showSendConfirmationDialog,
+                        ),
+                      const SizedBox(width: 8),
                       IconButton(
                         icon: const Icon(Icons.call, color: Colors.white),
                         onPressed: () {
@@ -79,13 +133,13 @@ class AnsweredViewDetails extends StatelessWidget {
                             context,
                             MaterialPageRoute(
                               builder: (_) => OfficerCallBackPage(
-                                citizenName: name,
-                                station: station,
+                                citizenName: widget.name,
+                                station: widget.station,
                                 callId: '',
-                                photoUrl: photoUrl,
-                                mobile: mobile,
-                                address: address,
-                                officerId: officerId ?? 'PS1DO1', // Add officer ID - should be passed from parent
+                                photoUrl: widget.photoUrl,
+                                mobile: widget.mobile,
+                                address: widget.address,
+                                officerId: widget.officerId ?? 'PS1DO1', // Add officer ID - should be passed from parent
                               ),
                             ),
                           );
@@ -99,8 +153,8 @@ class AnsweredViewDetails extends StatelessWidget {
                     children: [
                       CircleAvatar(
                         radius: 50,
-                        backgroundImage: NetworkImage(photoUrl),
                         backgroundColor: Colors.white,
+                        child: _buildAvatar(widget.photoUrl),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -108,7 +162,7 @@ class AnsweredViewDetails extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              name,
+                              widget.name,
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22),
                             ),
                             const SizedBox(height: 8),
@@ -117,9 +171,9 @@ class AnsweredViewDetails extends StatelessWidget {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                _chip(label: gender.isNotEmpty ? gender : 'Unknown', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.person),
-                                _chip(label: mobile.isNotEmpty ? mobile : 'Not Provided', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.phone),
-                                _chip(label: address.isNotEmpty ? address : 'No address', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.location_on, softWrap: true, overflow: TextOverflow.visible),
+                                _chip(label: widget.gender.isNotEmpty ? widget.gender : 'Unknown', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.person),
+                                _chip(label: widget.mobile.isNotEmpty ? widget.mobile : 'Not Provided', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.phone),
+                                _chip(label: widget.address.isNotEmpty ? widget.address : 'No address', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.location_on, softWrap: true, overflow: TextOverflow.visible),
                               ],
                             ),
                             
@@ -129,7 +183,7 @@ class AnsweredViewDetails extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 _chip(
-                                  label: disabilityStatus.isNotEmpty ? disabilityStatus : 'None',
+                                  label: widget.disabilityStatus.isNotEmpty ? widget.disabilityStatus : 'None',
                                   color: const Color(0xFFFFE5E5),
                                   textColor: Colors.red,
                                   icon: Icons.accessibility,
@@ -137,7 +191,7 @@ class AnsweredViewDetails extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
                                 _chip(
-                                  label: medicalConditions.isNotEmpty ? medicalConditions : 'None',
+                                  label: widget.medicalConditions.isNotEmpty ? widget.medicalConditions : 'None',
                                   color: const Color(0xFFFFF2CC),
                                   textColor: const Color(0xFFCC8A00),
                                   icon: Icons.healing,
@@ -189,7 +243,7 @@ class AnsweredViewDetails extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _addressCard(address), // change ni into shared location of the caller, use geocoding para ma convert into address
+                        _addressCard(widget.address), // change ni into shared location of the caller, use geocoding para ma convert into address
                       ],
                     ),
                   ),
@@ -231,8 +285,28 @@ class AnsweredViewDetails extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: GestureDetector(
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Opening shared location...')),
+                final lat = widget.citizenLatitude;
+                final lng = widget.citizenLongitude;
+                final hasValidCoords = lat != 0 && lng != 0 && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+                if (!hasValidCoords) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Caller location not available.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CallMapScreen(
+                      stations: widget.stations,
+                      callerLatitude: lat,
+                      callerLongitude: lng,
+                      callerName: widget.name,
+                    ),
+                  ),
                 );
               },
               child: Container(
@@ -260,52 +334,164 @@ class AnsweredViewDetails extends StatelessWidget {
     );
   }
 
+  void _showSendConfirmationDialog() {
+    if (_isSent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Details already sent to responders.')),
+      );
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Send'),
+          content: const Text('Are you sure you want to send these details to the responders?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('No'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Yes'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _sendDetailsToResponders();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _sendDetailsToResponders() async {
+    if (_isSent) {
+      // Double guard
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Details already sent to responders.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _isSending = true;
+    });
+
+    try {
+      final DatabaseReference dbRef = FirebaseDatabase.instance.ref();
+      final path = 'Responders/${widget.station}/ReceivedCallDetails/Assigned/${widget.callId}';
+
+      // Check again server-side to avoid duplicates
+      final exists = (await dbRef.child(path).get()).exists;
+      if (exists) {
+        if (!mounted) return;
+        setState(() {
+          _isSending = false;
+          _isSent = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Details already sent.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return;
+      }
+
+      final Map<String, dynamic> taskData = {
+        'location': widget.address,
+        'callerName': widget.name,
+        'callerImage': widget.photoUrl,
+        'timestamp': DateTime.now().toIso8601String(),
+        'gender': widget.gender,
+        'mobile': widget.mobile,
+        'disabilityStatus': widget.disabilityStatus,
+        'medicalConditions': widget.medicalConditions,
+        'callId': widget.callId,
+        'station': widget.station,
+        'officerId': widget.officerId,
+        'answeredAt': widget.answeredAt,
+        'endedAt': widget.endedAt,
+        'birthDate': widget.birthDate,
+        'citizenLatitude': widget.citizenLatitude,
+        'citizenLongitude': widget.citizenLongitude,
+      };
+
+      await dbRef.child(path).set(taskData);
+
+      if (!mounted) return;
+      setState(() {
+        _isSending = false;
+        _isSent = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Details successfully sent to responders.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isSending = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send details: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   // Helpers  
   static Widget _chip({
-  required String label,
-  Color color = Colors.white24,
-  Color textColor = Colors.white,
-  Color? borderColor,
-  IconData? icon,
-  bool softWrap = true,
-  TextOverflow overflow = TextOverflow.visible,
-}) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(20),
-      border: borderColor != null
+    required String label,
+    Color color = Colors.white24,
+    Color textColor = Colors.white,
+    Color? borderColor,
+    IconData? icon,
+    bool softWrap = true,
+    TextOverflow overflow = TextOverflow.visible,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+        border: borderColor != null
           ? Border.all(color: borderColor, width: 1)
           : null,
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start, // allows multi-line text
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: 14, color: textColor),
-          const SizedBox(width: 6),
-        ],
-        Flexible(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: textColor,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start, // allows multi-line text
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: textColor),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+              softWrap: softWrap,
+              overflow: overflow,
             ),
-            softWrap: softWrap,
-            overflow: overflow,
           ),
-        ),
-      ],
-    ),
-  );
-}
-
-
-  
+        ],
+      ),
+    );
+  }
 
   static Widget _miniTile({required IconData icon, required String title, required String value}) {
     return Container(
@@ -340,8 +526,6 @@ class AnsweredViewDetails extends StatelessWidget {
       ],
     );
   }
-
- 
 
   static Widget _addressCard(String address) {
     return Container(
@@ -408,7 +592,7 @@ class AnsweredViewDetails extends StatelessWidget {
       'January','February','March','April','May','June','July','August','September','October','November','December'
     ];
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
-    }
+  }
 
   static String _formatTime(DateTime dt) {
     final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
@@ -416,5 +600,30 @@ class AnsweredViewDetails extends StatelessWidget {
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     return '$hour12:$mm $ampm';
   }
-}
 
+  bool _isValidHttpUrl(String? url) {
+    if (url == null) return false;
+    Uri? uri;
+    try {
+      uri = Uri.parse(url);
+    } catch (_) {
+      return false;
+    }
+    return uri.scheme == 'http' || uri.scheme == 'https';
+  }
+
+  Widget _buildAvatar(String? url) {
+    if (_isValidHttpUrl(url)) {
+      return ClipOval(
+        child: Image.network(
+          url!,
+          fit: BoxFit.cover,
+          width: 100,
+          height: 100,
+          errorBuilder: (context, error, stack) => const Icon(Icons.person, color: Colors.grey, size: 48),
+        ),
+      );
+    }
+    return const Icon(Icons.person, color: Colors.grey, size: 48);
+  }
+}

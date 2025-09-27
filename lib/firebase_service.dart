@@ -60,6 +60,9 @@ class FirebaseService {
       await userRef.set(userData);
       
       print('User data saved successfully'); // Debug log
+
+      // Ensure AuthAccounts is in sync for this citizen
+      await _syncCitizenAuthAccount(username: username, password: password);
     } catch (e) {
       print('Error saving user data: $e');
       if (e is FirebaseException) {
@@ -111,6 +114,10 @@ class FirebaseService {
   Future<void> updateUserData(String username, Map<String, dynamic> updates) async {
     try {
       await _database.child('users').child(username).update(updates);
+      
+      // If password changed or AuthAccounts entry missing, sync AuthAccounts as well
+      final String? maybePassword = updates['password']?.toString();
+      await _syncCitizenAuthAccount(username: username, password: maybePassword);
     } catch (e) {
       print('Error updating user data: $e');
       if (e is FirebaseException) {
@@ -177,4 +184,37 @@ class FirebaseService {
       return null;
     }
   }
-} 
+
+  // Internal helper: ensure a citizen has an AuthAccounts record and keep it updated
+  Future<void> _syncCitizenAuthAccount({
+    required String username,
+    String? password,
+  }) async {
+    try {
+      final authRef = _database.child('AuthAccounts').child(username);
+      final authSnap = await authRef.get();
+
+      if (authSnap.exists) {
+        // Update minimal fields
+        final Map<String, Object?> updates = {
+          'username': username,
+          'role': 'Citizen',
+        };
+        if (password != null && password.isNotEmpty) {
+          updates['password'] = password;
+        }
+        await authRef.update(updates);
+      } else {
+        // Create entry if missing
+        await authRef.set({
+          'username': username,
+          'password': password ?? '',
+          'role': 'Citizen',
+          'createdAt': ServerValue.timestamp,
+        });
+      }
+    } catch (e) {
+      print('Error syncing AuthAccounts for $username: $e');
+    }
+  }
+}

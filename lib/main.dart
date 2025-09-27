@@ -1,5 +1,3 @@
-
-
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'registration.dart';
@@ -12,6 +10,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'deskOfficer/doHomepage.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'responders/resHompage.dart';
 
 Future<void> main() async {
   try {
@@ -84,6 +83,17 @@ class _SplashScreenState extends State<SplashScreen> {
               builder: (context) => DeskOfficerHomePage(
                 username: savedUsername,
                 officerId: officerId ?? '',
+              ),
+            ),
+          );
+        } else if (savedUserType == 'responder') {
+          final String? responderId = prefs.getString('responderId');
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ResponderHomePage(
+                username: savedUsername,
+                responderId: responderId ?? '',
               ),
             ),
           );
@@ -893,7 +903,128 @@ class LoginPageDetails extends State<LoginPage>
                               return;
                             }
 
-                            // 1. Check Desk Officer credentials
+                            // 0. Centralized Auth: Check AuthAccounts first (role-based)
+                            try {
+                              final authRef = FirebaseDatabase.instance.ref().child('AuthAccounts').child(username);
+                              final authSnap = await authRef.get();
+                              if (authSnap.exists && authSnap.value is Map) {
+                                final authData = Map<String, dynamic>.from(authSnap.value as Map);
+                                final storedPassword = authData['password']?.toString() ?? '';
+                                final role = (authData['role']?.toString() ?? '').toLowerCase();
+
+                                if (storedPassword == userPassword) {
+                                  // Save basic session
+                                  final prefs = await SharedPreferences.getInstance();
+                                  await prefs.setString('username', username);
+
+                                  if (role == 'citizen') {
+                                    await prefs.setString('userType', 'citizen');
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => HomePage(username: username),
+                                      ),
+                                    );
+                                    return;
+                                  } else if (role == 'desk officer' || role == 'desk_officer' || role == 'deskofficer') {
+                                    // Find officerId and station by username
+                                    final deskOfficerRef = FirebaseDatabase.instance.ref().child('Desk Officer');
+                                    final stationSnapshot = await deskOfficerRef.get();
+                                    if (stationSnapshot.exists && stationSnapshot.value is Map) {
+                                      final stations = stationSnapshot.value as Map<dynamic, dynamic>;
+                                      String foundOfficerId = '';
+                                      for (final stationEntry in stations.entries) {
+                                        if (stationEntry.value is Map) {
+                                          final officers = stationEntry.value as Map<dynamic, dynamic>;
+                                          for (final offEntry in officers.entries) {
+                                            if (offEntry.value is Map) {
+                                              final data = Map<String, dynamic>.from(offEntry.value as Map);
+                                              if (data['username']?.toString() == username) {
+                                                foundOfficerId = offEntry.key.toString();
+                                                break;
+                                              }
+                                            }
+                                          }
+                                          if (foundOfficerId.isNotEmpty) break;
+                                        }
+                                      }
+                                      await prefs.setString('userType', 'deskOfficer');
+                                      await prefs.setString('officerId', foundOfficerId);
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => DeskOfficerHomePage(
+                                            username: username,
+                                            officerId: foundOfficerId,
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                  } else if (role == 'responder') {
+                                    // Find responderId and station by username
+                                    final responderRef = FirebaseDatabase.instance.ref().child('Responders');
+                                    final responderSnapshot = await responderRef.get();
+                                    if (responderSnapshot.exists && responderSnapshot.value is Map) {
+                                      final stations = responderSnapshot.value as Map<dynamic, dynamic>;
+                                      String foundResponderId = '';
+                                      String foundResponderStation = '';
+                                      for (final stationEntry in stations.entries) {
+                                        if (stationEntry.value is Map) {
+                                          final responders = stationEntry.value as Map<dynamic, dynamic>;
+                                          for (final respEntry in responders.entries) {
+                                            if (respEntry.value is Map) {
+                                              final data = Map<String, dynamic>.from(respEntry.value as Map);
+                                              final candidateUsername = (data['username']?.toString().trim().toLowerCase() ?? respEntry.key.toString().trim().toLowerCase());
+                                              if (candidateUsername == username.trim().toLowerCase()) {
+                                                foundResponderId = respEntry.key.toString();
+                                                foundResponderStation = stationEntry.key.toString();
+                                                break;
+                                              }
+                                            }
+                                          }
+                                          if (foundResponderId.isNotEmpty) break;
+                                        }
+                                      }
+                                      final prefs = await SharedPreferences.getInstance();
+                                      await prefs.setString('userType', 'responder');
+                                      await prefs.setString('responderId', foundResponderId);
+                                      await prefs.setString('responderStation', foundResponderStation);
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => ResponderHomePage(
+                                            username: username,
+                                            responderId: foundResponderId,
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                  }
+                                } else {
+                                  // Wrong password for AuthAccounts
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: Text("Login Failed"),
+                                      content: Text("Incorrect password. Please try again."),
+                                      actions:[
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: Text("Try Again")
+                                        )
+                                      ],
+                                    )
+                                  );
+                                  return;
+                                }
+                              }
+                            } catch (e) {
+                              debugPrint('AuthAccounts check error: $e');
+                            }
+
+                            // 1. Check Desk Officer credentials (legacy, kept for backward compatibility)
                             final deskOfficerRef = FirebaseDatabase.instance.ref().child('Desk Officer');
                             bool foundDeskOfficer = false;
                             String foundOfficerId = '';
@@ -955,7 +1086,69 @@ class LoginPageDetails extends State<LoginPage>
                               return;
                             }
 
-                            // 2. Query Firebase for the user (citizen)
+                            // 2. Check Responder credentials
+                            final responderRef = FirebaseDatabase.instance.ref().child('Responders');
+                            bool foundResponder = false;
+                            String foundResponderId = '';
+                            String foundResponderStation = '';
+                            Map<String, dynamic>? responderData;
+
+                            final responderSnapshot = await responderRef.get();
+                            if (responderSnapshot.exists) {
+                              final stationsRaw = responderSnapshot.value;
+                              if (stationsRaw is Map) {
+                                final stations = stationsRaw as Map<dynamic, dynamic>;
+                                for (final stationEntry in stations.entries) {
+                                  if (stationEntry.value is Map) {
+                                    final respondersRaw = stationEntry.value;
+                                    if (respondersRaw is Map) {
+                                      final responders = respondersRaw as Map<dynamic, dynamic>;
+                                      for (final responderEntry in responders.entries) {
+                                        if (responderEntry.value is Map) {
+                                          final data = Map<String, dynamic>.from(responderEntry.value as Map);
+                                          if (data['username'] == username && data['password'].toString() == userPassword) {
+                                            foundResponder = true;
+                                            foundResponderId = responderEntry.key;
+                                            foundResponderStation = stationEntry.key;
+                                            responderData = Map<String, dynamic>.from(data);
+                                            break;
+                                          }
+                                        }
+                                      }
+                                      if (foundResponder) break;
+                                    } else {
+                                      print('Responders node is not a Map: ${respondersRaw}');
+                                    }
+                                  } else {
+                                    print('Station entry is not a Map: ${stationEntry.value}');
+                                  }
+                                }
+                              } else {
+                                print('Responder stations node is not a Map: ${stationsRaw}');
+                              }
+                            }
+
+                            if (foundResponder) {
+                              // Save login state for responder
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setString('username', username);
+                              await prefs.setString('userType', 'responder');
+                              await prefs.setString('responderId', foundResponderId);
+                              
+                              // Login as Responder
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ResponderHomePage(
+                                    username: username,
+                                    responderId: foundResponderId,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+
+                            // 3. Query Firebase for the user (citizen)
                             final userSnapshot = await FirebaseDatabase.instance
                                 .ref()
                                 .child('users')

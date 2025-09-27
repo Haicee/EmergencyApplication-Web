@@ -71,12 +71,11 @@ class RegistrationForm extends State<RegisterPage> {
 
     // Generate username from first name and surname only
     String _generateUsername(String firstName, String surname) {
-        // Capitalize first letter of each name
-        String capFirstName = firstName.isNotEmpty ? firstName[0].toUpperCase() + firstName.substring(1).toLowerCase() : '';
-        String capSurname = surname.isNotEmpty ? surname[0].toUpperCase() + surname.substring(1).toLowerCase() : '';
-        
-        // Combine names with proper spacing
-        return "$capFirstName $capSurname".trim();
+        // Preserve original casing and collapse multiple spaces
+        String normFirst = firstName.trim().replaceAll(RegExp(r'\s+'), ' ');
+        String normSurname = surname.trim().replaceAll(RegExp(r'\s+'), ' ');
+        // Join with a single space
+        return [normFirst, normSurname].where((p) => p.isNotEmpty).join(' ');
     }
 
     void _showErrorDialog(String message) {
@@ -375,6 +374,30 @@ class RegistrationForm extends State<RegisterPage> {
                 return;
             }
 
+            // Also prevent duplicates in AuthAccounts (centralized auth)
+            final authAccountExisting = await FirebaseDatabase.instance
+                .ref()
+                .child('AuthAccounts')
+                .child(username)
+                .get();
+            if (authAccountExisting.exists) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => AlertDialog(
+                  title: Text('Username Already Exists', style: TextStyle(fontSize: 18.0)),
+                  content: Text('This username is already used in the authentication system. Please contact support or choose a different name.', style: TextStyle(fontSize: 16.0)),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text('OK', style: TextStyle(fontSize: 16.0)),
+                    )
+                  ],
+                ),
+              );
+              return;
+            }
+
             // Check if contact number already exists
             String fullContactNumber = '09${_contactController.text}';
             print('Checking if contact number exists: $fullContactNumber'); // Debug log
@@ -429,6 +452,19 @@ class RegistrationForm extends State<RegisterPage> {
                 birthdate: _birthdateText,
             );
             print('User data saved successfully'); // Debug log
+
+            // Write to centralized AuthAccounts for role-based login (duplicate for authentication)
+            await FirebaseDatabase.instance
+                .ref()
+                .child('AuthAccounts')
+                .child(username)
+                .set({
+                  'username': username,
+                  'password': _passwordController.text,
+                  'role': 'Citizen',
+                  'createdAt': ServerValue.timestamp,
+                });
+            print('AuthAccounts entry created for $username');
 
             // Save login state for auto-login
             final prefs = await SharedPreferences.getInstance();

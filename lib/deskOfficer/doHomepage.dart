@@ -174,8 +174,7 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
           }
         }
       });
-      
-    // Listen for calls moved to MissedCalls (cancelled, declined, timeout) - Station Specific
+          // Listen for calls moved to MissedCalls (cancelled, declined, timeout) - Station Specific
     db.child('Desk Officer/$_stationName/ReceivedCalls/MissedCalls')
       .onChildAdded
       .listen((event) {
@@ -188,33 +187,10 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
           
           // Only show notification for actual missed calls (not answered calls)
           if (callData['status'] != 'answered') {
-            // Show appropriate notification based on status
-            String message = '';
-            Color backgroundColor = Colors.orange;
-            
-            switch (callData['status']) {
-              case 'cancelled':
-                message = 'Emergency call from ${callData['caller']} was cancelled';
-                break;
-              case 'declined':
-                message = 'Emergency call from ${callData['caller']} was declined';
-                backgroundColor = Colors.red;
-                break;
-              case 'timeout':
-                message = 'Emergency call from ${callData['caller']} timed out';
-                backgroundColor = Colors.red;
-                break;
-              default:
-                message = 'Emergency call from ${callData['caller']} was missed';
-            }
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(message),
-                backgroundColor: backgroundColor,
-                duration: Duration(seconds: 3),
-              ),
-            );
+            // No snackbars; tabs already reflect state changes.
+            // Keep a light log for debugging purposes only.
+            // debugPrint(
+            // 'MissedCalls event: status=${callData['status']} caller=${callData['caller']}');
           }
         }
       });

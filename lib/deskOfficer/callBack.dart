@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'duringCallBack.dart';
 import 'dart:async'; // Added for StreamSubscription
 import 'dart:async'; // Added for Timer
+import 'package:emergency/services/ringtone_service.dart';
 
 class OfficerCallBackPage extends StatefulWidget {
   final String citizenName;
@@ -44,6 +45,8 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
     _listenForCitizenResponse();
     _startTimeoutTimer(); // Start the timeout timer
     _startCountdownTimer(); // Start the countdown timer
+    // Start outgoing ringback tone
+    RingtoneService.playOutgoing();
   }
 
   @override
@@ -51,6 +54,8 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
     _callResponseSubscription?.cancel();
     _timeoutTimer?.cancel(); // Cancel timeout timer
     _countdownTimer?.cancel(); // Cancel countdown timer
+    // Ensure ringtone stops when leaving this page
+    RingtoneService.stop();
     super.dispose();
   }
 
@@ -148,6 +153,8 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
         _timeoutTimer?.cancel();
         _countdownTimer?.cancel(); // Cancel countdown timer
         _isCalling = false;
+        // Stop outgoing ringtone
+        RingtoneService.stop();
         
         // Citizen answered the call
         if (mounted) {
@@ -169,6 +176,8 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
         _timeoutTimer?.cancel();
         _countdownTimer?.cancel(); // Cancel countdown timer
         _isCalling = false;
+        // Stop outgoing ringtone
+        RingtoneService.stop();
         
         // Citizen declined the call
         if (mounted) {
@@ -190,6 +199,8 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
       _timeoutTimer?.cancel();
       _countdownTimer?.cancel(); // Cancel countdown timer
       _isCalling = false;
+      // Stop outgoing ringtone
+      RingtoneService.stop();
       
       final db = FirebaseDatabase.instance.ref();
       
@@ -251,6 +262,8 @@ class _OfficerCallBackPageState extends State<OfficerCallBackPage> {
   Future<void> _handleTimeout() async {
     try {
       final db = FirebaseDatabase.instance.ref();
+      // Stop outgoing ringtone on timeout
+      RingtoneService.stop();
       
       // Update call status to timeout in citizen's call log
       await db.child('users/${widget.citizenName}/ReceivedCalls/ActiveCalls/$_generatedCallId').update({

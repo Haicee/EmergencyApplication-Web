@@ -601,11 +601,11 @@ Widget build(BuildContext context) {
   
   switch (_tabController!.index) {
     case 0:
-      return 'Search assigned tasks...';
+      return 'Search here...';
     case 1:
-      return 'Search in progress tasks...';
+      return 'Search here...';
     case 2:
-      return 'Search completed tasks...';
+      return 'Search here...';
     default:
       return 'Search...';
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'duringCall.dart'; // Import the in-call page
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
+import 'package:emergency/services/ringtone_service.dart';
 
 
 class IncomingCallPage extends StatefulWidget {
@@ -48,6 +49,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
     super.initState();
     _processCallData();
     _listenForCallStatusChanges();
+    // Start incoming ringtone when this page shows
+    RingtoneService.playIncoming();
   }
 
   void _processCallData() {
@@ -74,6 +77,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
         // Call was moved to MissedCalls or removed
         debugPrint('Call ${widget.callId} was moved to MissedCalls or removed');
         if (mounted && Navigator.canPop(context)) {
+          // Stop ringtone on removal
+          RingtoneService.stop();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Call was cancelled by ${widget.name}'),
@@ -94,6 +99,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
         debugPrint('Call ${widget.callId} was cancelled by citizen');
         // Call was cancelled by citizen, close this page
         if (mounted && Navigator.canPop(context)) {
+          // Stop ringtone on cancel
+          RingtoneService.stop();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Call was cancelled by ${widget.name}'),
@@ -107,6 +114,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
         debugPrint('Call ${widget.callId} timed out');
         // Call timed out, close this page
         if (mounted && Navigator.canPop(context)) {
+          // Stop ringtone on timeout
+          RingtoneService.stop();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Call timed out'),
@@ -123,6 +132,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   @override
   void dispose() {
     _callStatusSubscription.cancel(); // Clean up the listener
+    // Ensure ringtone stops when leaving this page
+    RingtoneService.stop();
     super.dispose();
   }
 
@@ -259,6 +270,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                             onTap: () async {
                               // Cancel the call status listener to prevent wrong notifications
                               _callStatusSubscription.cancel();
+                              // Stop incoming ringtone on answer
+                              await RingtoneService.stop();
                               
                               // On answer: update call status to 'answered', set officer, and navigate to DuringCallPage
                               final db = FirebaseDatabase.instance.ref();
@@ -374,6 +387,8 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                             onTap: () async {
                               // Cancel the call status listener to prevent wrong notifications
                               _callStatusSubscription.cancel();
+                              // Stop incoming ringtone on decline
+                              await RingtoneService.stop();
                               
                               // On decline: update call status to 'declined' and move to MissedCalls
                               final db = FirebaseDatabase.instance.ref();

@@ -4,6 +4,8 @@ import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
+import 'package:vibration/vibration.dart';
 
 class ConnectingPage extends StatefulWidget
 {
@@ -24,6 +26,7 @@ class _ConnectingPageState extends State<ConnectingPage>
     // For demo, we'll use a Future.delayed to simulate the desk officer answering
     StreamSubscription? _callSub; // For listening to call status
     Timer? _timeoutTimer; // Timer for call timeout
+    Timer? _vibrationTimer; // Subtle haptic feedback while connecting
 
     @override
     void initState()
@@ -35,6 +38,8 @@ class _ConnectingPageState extends State<ConnectingPage>
           _timeoutTimer = Timer(const Duration(seconds: 30), () {
             _cancelCallDueToTimeout();
           });
+          // Start subtle vibration pulses while connecting (every 3 seconds)
+          _startVibrationPulse();
 
           // Listen for call status changes
           final db = FirebaseDatabase.instance.ref();
@@ -43,6 +48,7 @@ class _ConnectingPageState extends State<ConnectingPage>
               final callData = event.snapshot.value as Map;
               if (callData['status'] == 'answered') {
                 _timeoutTimer?.cancel();
+                _stopVibrationPulse();
                 if (mounted) {
                   Navigator.pushReplacement(
                     context,
@@ -58,6 +64,7 @@ class _ConnectingPageState extends State<ConnectingPage>
                 }
               } else if (callData['status'] == 'declined' || callData['status'] == 'cancelled') {
                 _timeoutTimer?.cancel();
+                _stopVibrationPulse();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Call was ${callData['status']}.')),
@@ -97,6 +104,7 @@ class _ConnectingPageState extends State<ConnectingPage>
               backgroundColor: Colors.red,
             ),
           );
+          _stopVibrationPulse();
           if (Navigator.canPop(context)) Navigator.pop(context);
         }
       } catch (e) {
@@ -108,7 +116,34 @@ class _ConnectingPageState extends State<ConnectingPage>
     void dispose() {
       _callSub?.cancel(); // Clean up listener
       _timeoutTimer?.cancel(); // Cancel timeout timer
+      _stopVibrationPulse();
       super.dispose();
+    }
+
+    void _startVibrationPulse() {
+      // Use subtle vibration every 3 seconds while connecting
+      _vibrationTimer?.cancel();
+      _vibrationTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+        try {
+          final canVibrate = await Vibration.hasVibrator() ?? false;
+          if (canVibrate) {
+            // Short vibration, moderate intensity (duration ms, amplitude 1-255 Android only)
+            await Vibration.vibrate(duration: 120, amplitude: 120);
+          } else {
+            // Fallback to light haptic if available
+            await HapticFeedback.lightImpact();
+          }
+        } catch (_) {
+          // Ignore if device/emulator doesn't support haptics
+        }
+      });
+    }
+
+    void _stopVibrationPulse() {
+      _vibrationTimer?.cancel();
+      _vibrationTimer = null;
+      // Best-effort cancel any ongoing vibration
+      try { Vibration.cancel(); } catch (_) {}
     }
     
     @override

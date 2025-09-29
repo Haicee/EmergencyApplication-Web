@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'emergencyCallBack.dart';
+import 'package:emergency/services/ringtone_service.dart';
 
 /// Citizen-side incoming call dialog UI.
 /// Shows an overlay styled similarly to the desk officer's incoming call,
 /// but tailored to police station details instead of personal information.
-class CitizenIncomingCallDialog extends StatelessWidget {
+class CitizenIncomingCallDialog extends StatefulWidget {
   final String stationName;
   final String photoUrl;
   final String hotline;
@@ -26,6 +27,25 @@ class CitizenIncomingCallDialog extends StatelessWidget {
     this.onAnswer,
     this.onDecline,
   }) : super(key: key);
+
+  @override
+  State<CitizenIncomingCallDialog> createState() => _CitizenIncomingCallDialogState();
+}
+
+class _CitizenIncomingCallDialogState extends State<CitizenIncomingCallDialog> {
+  @override
+  void initState() {
+    super.initState();
+    // Start ringing when dialog appears
+    RingtoneService.playIncoming();
+  }
+
+  @override
+  void dispose() {
+    // Ensure ringtone stops when dialog is dismissed
+    RingtoneService.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,12 +74,12 @@ class CitizenIncomingCallDialog extends StatelessWidget {
                     const SizedBox(height: 8),
                     CircleAvatar(
                       radius: 48,
-                      backgroundImage: NetworkImage(photoUrl),
+                      backgroundImage: NetworkImage(widget.photoUrl),
                       backgroundColor: Colors.white,
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      stationName,
+                      widget.stationName,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -89,7 +109,7 @@ class CitizenIncomingCallDialog extends StatelessWidget {
                         Expanded(
                           child: _InfoCard(
                             label: 'Hotline',
-                            value: hotline.isNotEmpty ? hotline : 'Not Provided',
+                            value: widget.hotline.isNotEmpty ? widget.hotline : 'Not Provided',
                             icon: Icons.phone,
                           ),
                         ),
@@ -97,7 +117,7 @@ class CitizenIncomingCallDialog extends StatelessWidget {
                         Expanded(
                           child: _InfoCard(
                             label: 'Station',
-                            value: stationName,
+                            value: widget.stationName,
                             icon: Icons.apartment,
                           ),
                         ),
@@ -106,7 +126,7 @@ class CitizenIncomingCallDialog extends StatelessWidget {
                     const SizedBox(height: 12),
                     _InfoCard(
                       label: 'Address',
-                      value: address.isNotEmpty ? address : 'No address provided',
+                      value: widget.address.isNotEmpty ? widget.address : 'No address provided',
                       icon: Icons.location_on,
                     ),
 
@@ -119,8 +139,10 @@ class CitizenIncomingCallDialog extends StatelessWidget {
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
-                              if (onAnswer != null) {
-                                onAnswer!();
+                              // Stop ringtone then trigger callback
+                              RingtoneService.stop();
+                              if (widget.onAnswer != null) {
+                                widget.onAnswer!();
                               }
                             },
                             child: Container(
@@ -144,8 +166,10 @@ class CitizenIncomingCallDialog extends StatelessWidget {
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
-                              if (onDecline != null) {
-                                onDecline!();
+                              // Stop ringtone then trigger callback
+                              RingtoneService.stop();
+                              if (widget.onDecline != null) {
+                                widget.onDecline!();
                               }
                             },
                             child: Container(

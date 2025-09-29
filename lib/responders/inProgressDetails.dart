@@ -46,20 +46,66 @@ class InProgressDetailsPage extends StatelessWidget {
   static Future<String> _reverseGeocode(double lat, double lng) async {
     try {
       final placemarks = await geocoding.placemarkFromCoordinates(lat, lng);
-      if (placemarks.isNotEmpty) {
-        final p = placemarks.first;
-        final parts = <String>[
-          if ((p.street ?? '').isNotEmpty) p.street!,
-          if ((p.subLocality ?? '').isNotEmpty) p.subLocality!,
-          if ((p.locality ?? '').isNotEmpty) p.locality!,
-          if ((p.administrativeArea ?? '').isNotEmpty) p.administrativeArea!,
-          if ((p.postalCode ?? '').isNotEmpty) p.postalCode!,
-          if ((p.country ?? '').isNotEmpty) p.country!,
-        ];
-        if (parts.isNotEmpty) return parts.join(', ');
+      if (placemarks.isEmpty) return 'Not provided';
+      final p = placemarks.first;
+      final houseNo = (p.subThoroughfare ?? '').trim();
+      final street = (p.thoroughfare ?? p.street ?? '').trim();
+      final barangay = (p.subLocality ?? '').trim();
+      final city = (p.locality ?? '').trim();
+      final province = (p.subAdministrativeArea ?? '').trim();
+      final region = (p.administrativeArea ?? '').trim();
+      final country = (p.country ?? '').trim();
+
+      bool _isPlusCode(String s) {
+        final t = s.trim();
+        return t.contains('+') && t.length <= 12;
       }
+
+      String composeStreetLine() {
+        if (street.isEmpty) return '';
+        if (_isPlusCode(street)) return '';
+        return [if (houseNo.isNotEmpty) houseNo, street].join(' ').trim();
+      }
+
+      final streetLine = composeStreetLine();
+      final rawParts = <String>[
+        if (streetLine.isNotEmpty) streetLine,
+        if (barangay.isNotEmpty) barangay,
+        if (city.isNotEmpty) city,
+        if (province.isNotEmpty) province else if (region.isNotEmpty) region,
+        if (country.isNotEmpty) country,
+      ];
+      final parts = rawParts.where((s) => !_isPlusCode(s)).toList();
+      if (parts.isNotEmpty) return parts.join(', ');
+
+      final fallback = <String>[
+        if (city.isNotEmpty) city,
+        if (region.isNotEmpty) region,
+        if (country.isNotEmpty) country,
+      ];
+      if (fallback.isNotEmpty) return fallback.join(', ');
     } catch (_) {}
     return 'Not provided';
+  }
+
+  // Clean a comma-separated address string by removing placeholders and plus codes.
+  static String _cleanAddressDisplay(String? raw) {
+    if (raw == null) return 'Not provided';
+    final parts = raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) {
+          if (s.isEmpty) return false;
+          final lower = s.toLowerCase();
+          if (lower == 'not provided' || lower == 'no address' || lower == 'unknown' || lower == 'n/a') {
+            return false;
+          }
+          if (s.contains('+') && s.length <= 12) return false;
+          return true;
+        })
+        .toList();
+    if (parts.isEmpty) return 'Not provided';
+    return parts.join(', ');
   }
 
   Future<void> _openSharedLocation(BuildContext context) async {
@@ -324,19 +370,19 @@ class InProgressDetailsPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 CircleAvatar(
-                  radius: 32,
+                  radius: 50,
                   backgroundColor: Colors.white,
                   child: (photoUrl != null && photoUrl.isNotEmpty)
                       ? ClipOval(
                           child: Image.network(
                             photoUrl,
                             fit: BoxFit.cover,
-                            width: 64,
-                            height: 64,
-                            errorBuilder: (context, error, stack) => const Icon(Icons.person, color: Colors.grey, size: 32),
+                            width: 100,
+                            height: 100,
+                            errorBuilder: (context, error, stack) => const Icon(Icons.person, color: Colors.grey, size: 48),
                           ),
                         )
-                      : const Icon(Icons.person, color: Colors.grey, size: 32),
+                      : const Icon(Icons.person, color: Colors.grey, size: 48),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -357,7 +403,7 @@ class InProgressDetailsPage extends StatelessWidget {
                           chip(label: gender, icon: Icons.person),
                           chip(label: contact, icon: Icons.phone),
                           chip(label: birthDate.isNotEmpty ? birthDate : 'Not provided', icon: Icons.cake),
-                          chip(label: address, icon: Icons.location_on, softWrap: true),
+                          chip(label: _cleanAddressDisplay(address), icon: Icons.location_on, softWrap: true),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -446,12 +492,12 @@ class InProgressDetailsPage extends StatelessWidget {
                         FutureBuilder<String>(
                           future: (lat != null && lng != null)
                               ? _reverseGeocode(lat, lng)
-                              : Future<String>.value(address.isNotEmpty ? address : 'Not provided'),
+                              : Future<String>.value(_cleanAddressDisplay(address)),
                           builder: (context, snapshot) {
                             final addr = snapshot.connectionState == ConnectionState.done
-                                ? (snapshot.data ?? address)
-                                : address;
-                            return _LabeledBox(label: 'Address', value: addr);
+                                ? (snapshot.data ?? _cleanAddressDisplay(address))
+                                : _cleanAddressDisplay(address);
+                            return _LabeledBox(label: 'Address', value: _cleanAddressDisplay(addr));
                           },
                         ),
                         const SizedBox(height: 12),

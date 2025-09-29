@@ -555,7 +555,7 @@ Widget build(BuildContext context) {
 
   Widget _buildSearchBar() {
     return Container(
-      margin: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 10),
+      margin: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 3),
       padding: EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,

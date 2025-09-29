@@ -547,13 +547,22 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                 controller: _tabController!,
                 children: [
                   // Active Calls Tab
-                  _buildActiveCallsTab(),
+                  RefreshIndicator(
+                    onRefresh: _refreshCalls,
+                    child: _buildActiveCallsTab(),
+                  ),
                   
                   // Missed Calls Tab
-                  _buildMissedCallsTab(),
+                  RefreshIndicator(
+                    onRefresh: _refreshCalls,
+                    child: _buildMissedCallsTab(),
+                  ),
                   
                   // Answered Calls Tab
-                  _buildAnsweredCallsTab(),
+                  RefreshIndicator(
+                    onRefresh: _refreshCalls,
+                    child: _buildAnsweredCallsTab(),
+                  ),
                 ],
               ),
             ),
@@ -590,7 +599,7 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
 
   Widget _buildSearchBar() {
     return Container(
-      margin: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 10),
+      margin: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 6),
       padding: EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -648,6 +657,79 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
     }
   }
 
+  // --- Date helpers and header UI ---
+  DateTime? _parseTimestamp(dynamic ts) {
+    try {
+      if (ts == null) return null;
+      if (ts is int) {
+        // Heuristic: treat >1e11 as milliseconds, otherwise seconds
+        final isMs = ts > 100000000000;
+        return DateTime.fromMillisecondsSinceEpoch(isMs ? ts : ts * 1000).toLocal();
+      }
+      if (ts is String) {
+        return DateTime.parse(ts).toLocal();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  String _formatFullDate(DateTime dt) {
+    const months = [
+      'January','February','March','April','May','June','July','August','September','October','November','December'
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  String _relativeDateLabel(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(dt.year, dt.month, dt.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    const months = [
+      'January','February','March','April','May','June','July','August','September','October','November','December'
+    ];
+    final monthDay = '${months[dt.month - 1]} ${dt.day}';
+    if (d == today) return 'Today, $monthDay';
+    if (d == yesterday) return 'Yesterday, $monthDay';
+    return _formatFullDate(dt);
+  }
+
+  Widget _dateHeaderFromEpoch(int epochMs) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(epochMs).toLocal();
+    final label = _relativeDateLabel(dt);
+    return Container(
+      margin: const EdgeInsets.only(top: 0, bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4B54FF), Color(0xFFFF4545)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 12),
+          // Balanced divider: expands but keeps a small right padding to avoid touching the edge
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Container(
+                height: 1,
+                color: Colors.white.withOpacity(0.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActiveCallsTab() {
     final filteredCalls = _activeCalls.entries.where((entry) {
       final callData = entry.value as Map;
@@ -656,26 +738,50 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
       return callerName.contains(_searchQuery) || phoneNumber.contains(_searchQuery);
     }).toList();
 
-    // Sort active calls by timestamp in ascending order (oldest first)
-    filteredCalls.sort((a, b) {
-      final aTimestamp = a.value['timestamp'] ?? 0;
-      final bTimestamp = b.value['timestamp'] ?? 0;
-      return aTimestamp.compareTo(bTimestamp);
-    });
-
     if (filteredCalls.isEmpty) {
-      return _buildEmptyState('No active calls', );
+      return _buildEmptyState('No active calls');
     }
 
+    // Group by date (Month Day, Year) and sort groups (newest first)
+    final Map<String, List<MapEntry<String, dynamic>>> grouped = {};
+    final Map<String, int> groupLatestEpoch = {};
+    for (final e in filteredCalls) {
+      final dt = _parseTimestamp((e.value as Map)['timestamp']) ?? DateTime.now();
+      final key = _formatFullDate(dt);
+      grouped.putIfAbsent(key, () => []).add(e);
+      final epoch = dt.millisecondsSinceEpoch;
+      groupLatestEpoch[key] = (groupLatestEpoch[key] ?? 0).clamp(0, 1 << 62);
+      if (epoch > (groupLatestEpoch[key] ?? 0)) {
+        groupLatestEpoch[key] = epoch;
+      }
+    }
+    final dateKeys = grouped.keys.toList()
+      ..sort((a, b) => (groupLatestEpoch[b] ?? 0).compareTo(groupLatestEpoch[a] ?? 0));
+
     return ListView.builder(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: filteredCalls.length,
-      itemBuilder: (context, index) {
-        final entry = filteredCalls[index];
-        final callId = entry.key;
-        final callData = Map<String, dynamic>.from(entry.value as Map);
-        
-        return _buildActiveCallCard(callId, callData);
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: dateKeys.length,
+      itemBuilder: (context, i) {
+        final key = dateKeys[i];
+        final items = grouped[key]!;
+        // Newest first within group
+        items.sort((a, b) {
+          final da = _parseTimestamp((a.value as Map)['timestamp'])?.millisecondsSinceEpoch ?? 0;
+          final db = _parseTimestamp((b.value as Map)['timestamp'])?.millisecondsSinceEpoch ?? 0;
+          return db.compareTo(da);
+        });
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _dateHeaderFromEpoch(groupLatestEpoch[key] ?? DateTime.now().millisecondsSinceEpoch),
+            ...items.map((entry) {
+              final callId = entry.key;
+              final callData = Map<String, dynamic>.from(entry.value as Map);
+              return _buildActiveCallCard(callId, callData);
+            }).toList(),
+          ],
+        );
       },
     );
   }
@@ -688,26 +794,46 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
       return callerName.contains(_searchQuery) || phoneNumber.contains(_searchQuery);
     }).toList();
 
-    // Sort missed calls by timestamp in ascending order (oldest first)
-    filteredCalls.sort((a, b) {
-      final aTimestamp = a.value['timestamp'] ?? 0;
-      final bTimestamp = b.value['timestamp'] ?? 0;
-      return aTimestamp.compareTo(bTimestamp);
-    });
-
     if (filteredCalls.isEmpty) {
       return _buildEmptyState('No missed calls');
     }
 
+    final Map<String, List<MapEntry<String, dynamic>>> grouped = {};
+    final Map<String, int> groupLatestEpoch = {};
+    for (final e in filteredCalls) {
+      final dt = _parseTimestamp((e.value as Map)['timestamp']) ?? DateTime.now();
+      final key = _formatFullDate(dt);
+      grouped.putIfAbsent(key, () => []).add(e);
+      final epoch = dt.millisecondsSinceEpoch;
+      if (epoch > (groupLatestEpoch[key] ?? 0)) {
+        groupLatestEpoch[key] = epoch;
+      }
+    }
+    final dateKeys = grouped.keys.toList()
+      ..sort((a, b) => (groupLatestEpoch[b] ?? 0).compareTo(groupLatestEpoch[a] ?? 0));
     return ListView.builder(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: filteredCalls.length,
-      itemBuilder: (context, index) {
-        final entry = filteredCalls[index];
-        final callId = entry.key;
-        final callData = Map<String, dynamic>.from(entry.value as Map);
-        
-        return _buildMissedCallCard(callId, callData);
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: dateKeys.length,
+      itemBuilder: (context, i) {
+        final key = dateKeys[i];
+        final items = grouped[key]!;
+        items.sort((a, b) {
+          final da = _parseTimestamp((a.value as Map)['timestamp'])?.millisecondsSinceEpoch ?? 0;
+          final db = _parseTimestamp((b.value as Map)['timestamp'])?.millisecondsSinceEpoch ?? 0;
+          return db.compareTo(da);
+        });
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _dateHeaderFromEpoch(groupLatestEpoch[key] ?? DateTime.now().millisecondsSinceEpoch),
+            ...items.map((entry) {
+              final callId = entry.key;
+              final callData = Map<String, dynamic>.from(entry.value as Map);
+              return _buildMissedCallCard(callId, callData);
+            }).toList(),
+          ],
+        );
       },
     );
   }
@@ -720,50 +846,113 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
       return callerName.contains(_searchQuery) || phoneNumber.contains(_searchQuery);
     }).toList();
 
-    // Sort answered calls by timestamp in descending order (newest first)
-    filteredCalls.sort((a, b) {
-      final aTimestamp = a.value['timestamp'] ?? 0;
-      final bTimestamp = b.value['timestamp'] ?? 0;
-      return bTimestamp.compareTo(aTimestamp); // Descending order
-    });
-
     if (filteredCalls.isEmpty) {
       return _buildEmptyState('No answered calls');
     }
 
+    final Map<String, List<MapEntry<String, dynamic>>> grouped = {};
+    final Map<String, int> groupLatestEpoch = {};
+    for (final e in filteredCalls) {
+      final dt = _parseTimestamp((e.value as Map)['timestamp']) ?? DateTime.now();
+      final key = _formatFullDate(dt);
+      grouped.putIfAbsent(key, () => []).add(e);
+      final epoch = dt.millisecondsSinceEpoch;
+      if (epoch > (groupLatestEpoch[key] ?? 0)) {
+        groupLatestEpoch[key] = epoch;
+      }
+    }
+    final dateKeys = grouped.keys.toList()
+      ..sort((a, b) => (groupLatestEpoch[b] ?? 0).compareTo(groupLatestEpoch[a] ?? 0));
     return ListView.builder(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: filteredCalls.length,
-      itemBuilder: (context, index) {
-        final entry = filteredCalls[index];
-        final callId = entry.key;
-        final callData = Map<String, dynamic>.from(entry.value as Map);
-        
-        return _buildAnsweredCallCard(callId, callData);
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: dateKeys.length,
+      itemBuilder: (context, i) {
+        final key = dateKeys[i];
+        final items = grouped[key]!;
+        items.sort((a, b) {
+          final da = _parseTimestamp((a.value as Map)['timestamp'])?.millisecondsSinceEpoch ?? 0;
+          final db = _parseTimestamp((b.value as Map)['timestamp'])?.millisecondsSinceEpoch ?? 0;
+          return db.compareTo(da);
+        });
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _dateHeaderFromEpoch(groupLatestEpoch[key] ?? DateTime.now().millisecondsSinceEpoch),
+            ...items.map((entry) {
+              final callId = entry.key;
+              final callData = Map<String, dynamic>.from(entry.value as Map);
+              return _buildAnsweredCallCard(callId, callData);
+            }).toList(),
+          ],
+        );
       },
     );
   }
 
   Widget _buildEmptyState(String title) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.info_outline, size: 60, color: const Color.fromARGB(255, 255, 255, 255)),
-          SizedBox(height: 16),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: const Color.fromARGB(255, 255, 255, 255),
-            ),
+    // Make it scrollable so RefreshIndicator can trigger even when empty
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+      children: [
+        const SizedBox(height: 100),
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.info_outline, size: 60, color: Color.fromARGB(255, 255, 255, 255)),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color.fromARGB(255, 255, 255, 255),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
-          SizedBox(height: 8),
-          
-        ],
-      ),
+        ),
+        const SizedBox(height: 400),
+      ],
     );
+  }
+
+  Future<void> _refreshCalls() async {
+    try {
+      if (_stationName.isEmpty || _stationName == 'Police Station') {
+        await _fetchStationInfo();
+        return;
+      }
+
+      final baseRef = FirebaseDatabase.instance
+          .ref('Desk Officer/$_stationName/ReceivedCalls');
+
+      final activeSnap = await baseRef.child('ActiveCalls').get();
+      final missedSnap = await baseRef.child('MissedCalls').get();
+      final answeredSnap = await baseRef.child('AnsweredCalls').get();
+
+      setState(() {
+        _activeCalls = (activeSnap.value != null && activeSnap.value is Map)
+            ? Map<String, dynamic>.from(activeSnap.value as Map)
+            : {};
+        _missedCalls = (missedSnap.value != null && missedSnap.value is Map)
+            ? Map<String, dynamic>.from(missedSnap.value as Map)
+            : {};
+        _answeredCalls = (answeredSnap.value != null && answeredSnap.value is Map)
+            ? Map<String, dynamic>.from(answeredSnap.value as Map)
+            : {};
+      });
+    } catch (e) {
+      // Optional: show a brief message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Refresh failed: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildActiveCallCard(String callId, Map<String, dynamic> callData) {

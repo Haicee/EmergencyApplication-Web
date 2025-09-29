@@ -124,8 +124,8 @@ class _ProfilePageState extends State<ProfilePage> {
     _selectedBarangay = _userData['barangay'] == 'Not provided' ? null : _userData['barangay'];
     _selectedGender = _userData['gender'] == 'Not provided' ? null : _userData['gender'];
     
-    _isPWD = _userData['pwdCondition'] != 'Not provided' && _userData['pwdCondition'] == 'Yes';
-    _hasMedicalCondition = _userData['medicalCondition'] != 'Not provided' && _userData['medicalCondition'] == 'Yes';
+    _isPWD = _userData['pwdCondition'] != 'Not provided' && _userData['pwdCondition'] == 'Person with Disability';
+    _hasMedicalCondition = _userData['medicalCondition'] != 'Not provided' && _userData['medicalCondition'] == 'Person with Medical Condition';
     
     _profileImageUrl = _userData['profileImageUrl'];
   }
@@ -188,8 +188,8 @@ class _ProfilePageState extends State<ProfilePage> {
         'barangay': _selectedBarangay ?? 'Not provided',
         'streetAddress': _streetController.text.trim().isEmpty ? 'Not provided' : _streetController.text.trim(),
         'gender': _selectedGender ?? 'Not provided',
-        'pwdCondition': _isPWD ? 'Yes' : 'Not provided',
-        'medicalCondition': _hasMedicalCondition ? 'Yes' : 'Not provided',
+        'pwdCondition': _isPWD ? 'Person With Disability' : 'Not provided',
+        'medicalCondition': _hasMedicalCondition ? 'Person With Medical Condition' : 'Not provided',
       };
       
       if (imageUrl != null) {

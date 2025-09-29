@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:geocoding/geocoding.dart' as geocoding;
 import '../callBack.dart';
 import '../../models/station.dart';
 import '../../screens/officer_map_screen.dart';
@@ -79,6 +80,9 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
     final callDuration = _formatCallDuration(widget.answeredAt, widget.endedAt);
     final dateStr = _formatDate(DateTime.fromMillisecondsSinceEpoch(widget.timestamp));
     final timeStr = _formatTime(DateTime.fromMillisecondsSinceEpoch(widget.timestamp));
+    final lat = widget.citizenLatitude;
+    final lng = widget.citizenLongitude;
+    final hasValidCoords = lat != 0 && lng != 0 && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -173,7 +177,7 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
                               children: [
                                 _chip(label: widget.gender.isNotEmpty ? widget.gender : 'Unknown', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.person),
                                 _chip(label: widget.mobile.isNotEmpty ? widget.mobile : 'Not Provided', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.phone),
-                                _chip(label: widget.address.isNotEmpty ? widget.address : 'No address', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.location_on, softWrap: true, overflow: TextOverflow.visible),
+                                _chip(label: _cleanAddressDisplay(widget.address), color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.location_on, softWrap: true, overflow: TextOverflow.visible),
                               ],
                             ),
                             
@@ -243,7 +247,17 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _addressCard(widget.address), // change ni into shared location of the caller, use geocoding para ma convert into address
+                        FutureBuilder<String>(
+                          future: hasValidCoords
+                              ? _reverseGeocode(lat, lng)
+                              : Future<String>.value(_cleanAddressDisplay(widget.address)),
+                          builder: (context, snapshot) {
+                            final resolved = snapshot.connectionState == ConnectionState.done
+                                ? (snapshot.data ?? _cleanAddressDisplay(widget.address))
+                                : _cleanAddressDisplay(widget.address);
+                            return _addressCard(_cleanAddressDisplay(resolved));
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -285,9 +299,6 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: GestureDetector(
               onTap: () {
-                final lat = widget.citizenLatitude;
-                final lng = widget.citizenLongitude;
-                final hasValidCoords = lat != 0 && lng != 0 && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
                 if (!hasValidCoords) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -572,6 +583,93 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
         ],
       ),
     );
+  }
+
+  // Cleans a comma-separated address string by removing placeholders like
+  // "Not provided"/"No address" and empty parts. If everything is removed,
+  // returns exactly "Not provided".
+  static String _cleanAddressDisplay(String? raw) {
+    if (raw == null) return 'Not provided';
+    final parts = raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) {
+          if (s.isEmpty) return false;
+          final lower = s.toLowerCase();
+          if (lower == 'not provided' || lower == 'no address' || lower == 'unknown' || lower == 'n/a') {
+            return false;
+          }
+          // Filter out obvious plus codes like "34RP+6HG"
+          if (s.contains('+') && s.length <= 12) return false;
+          return true;
+        })
+        .toList();
+    if (parts.isEmpty) return 'Not provided';
+    return parts.join(', ');
+  }
+
+  // Reverse geocode coordinates into a readable address for display
+  static Future<String> _reverseGeocode(double lat, double lng) async {
+    try {
+      // Use default locale; some versions don't support localeIdentifier
+      final placemarks = await geocoding.placemarkFromCoordinates(
+        lat,
+        lng,
+      );
+      if (placemarks.isEmpty) return 'Not provided';
+
+      final p = placemarks.first;
+
+      // Extract granular fields with good fallbacks
+      final houseNo = (p.subThoroughfare ?? '').trim();
+      final street = (p.thoroughfare ?? p.street ?? '').trim();
+      final barangay = (p.subLocality ?? '').trim(); // PH: often Barangay
+      final city = (p.locality ?? '').trim(); // City/Municipality
+      final province = (p.subAdministrativeArea ?? '').trim(); // Province
+      final region = (p.administrativeArea ?? '').trim(); // Region
+      final country = (p.country ?? '').trim();
+
+      // Helper: remove Plus Codes and noisy tokens from any component
+      bool _isPlusCode(String s) {
+        final t = s.trim();
+        if (!t.contains('+')) return false;
+        // common plus code tokens are short and contain '+'
+        return t.length <= 12;
+      }
+
+      String composeStreetLine() {
+        if (street.isEmpty) return '';
+        if (_isPlusCode(street)) return '';
+        return [if (houseNo.isNotEmpty) houseNo, street].join(' ').trim();
+      }
+
+      final streetLine = composeStreetLine();
+
+      // Build a clean, human-readable sentence-like address
+      final rawParts = <String>[
+        if (streetLine.isNotEmpty) streetLine,
+        if (barangay.isNotEmpty) barangay,
+        if (city.isNotEmpty) city,
+        if (province.isNotEmpty) province else if (region.isNotEmpty) region,
+        if (country.isNotEmpty) country,
+      ];
+
+      // Sanitize: drop anything that looks like a plus code anywhere
+      final parts = rawParts.where((p) => !_isPlusCode(p)).toList();
+
+      if (parts.isNotEmpty) {
+        return parts.join(', ');
+      }
+
+      // Last resort: try a minimal fallback using locality/region
+      final fallback = <String>[
+        if (city.isNotEmpty) city,
+        if (region.isNotEmpty) region,
+        if (country.isNotEmpty) country,
+      ];
+      if (fallback.isNotEmpty) return fallback.join(', ');
+    } catch (_) {}
+    return 'Not provided';
   }
 
   static String _formatCallDuration(int answeredAt, int endedAt) {

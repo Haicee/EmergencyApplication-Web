@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+  import React, { useState } from "react";
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -26,13 +26,15 @@ export default function Login({ onLogin }) {
         <div className="bg-white/10 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-8">
           {/* Logo and header */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-red-500 to-red-700 shadow-lg mb-4 transform hover:scale-105 transition-transform duration-200">
-              <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth="2">
-                <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
+            <div className="inline-flex items-center justify-center w-40 h-40 mb-4 overflow-hidden">
+              <img
+                src={`${process.env.PUBLIC_URL}/Resme LOGO..png`}
+                alt="ResMe logo"
+                className="w-full h-full object-contain"
+              />
             </div>
-            <h1 className="text-white text-3xl font-bold tracking-tight mb-2">ResMe</h1>
-            <p className="text-red-100 text-sm font-medium">Admin Dashboard Access</p>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-2 bg-gradient-to-r from-red-300 via-white to-blue-300 text-transparent bg-clip-text">ResMe</h1>
+            <p className="text-red-100 text-sm font-medium">Admin Dashboard</p>
           </div>
 
           {/* Login form */}

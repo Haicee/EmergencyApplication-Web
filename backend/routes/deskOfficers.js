@@ -46,50 +46,147 @@ router.post('/', async (req, res) => {
     await db.ref(`Desk Officer/${name}`).set(Object.keys(stationData).length ? stationData : null);
     res.status(201).json({ message: 'Station created', name });
   } catch (error) {
+    console.error('Failed to create station:', error);
     res.status(500).json({ error: 'Failed to create station' });
   }
 });
 
 // Add a desk officer
 router.post('/:station', async (req, res) => {
+  const station = req.params.station;
+  const officerData = req.body || {};
+  const username = officerData.username;
+  const password = officerData.password;
+  const status = officerData.status ?? 'Active';
+
+  if (!username) {
+    return res.status(400).json({ error: 'Officer username is required as key' });
+  }
+
+  if (!password) {
+    return res.status(400).json({ error: 'Officer password is required' });
+  }
+
   try {
-    const officerData = req.body;
-    const key = officerData.username;
-    if (!key) return res.status(400).json({ error: 'Officer username is required as key' });
-    // Check if officer already exists
-    const snapshot = await db.ref(`Desk Officer/${req.params.station}/${key}`).once('value');
-    if (snapshot.exists()) {
-      return res.status(400).json({ error: 'Officer already exists' });
+    const officerPath = `Desk Officer/${station}/${username}`;
+    const authPath = `AuthAccounts/${username}`;
+
+    const [existingOfficerSnapshot, existingAuthSnapshot] = await Promise.all([
+      db.ref(officerPath).once('value'),
+      db.ref(authPath).once('value')
+    ]);
+
+    if (existingOfficerSnapshot.exists()) {
+      return res.status(400).json({ error: 'Officer already exists in this station' });
     }
-    await db.ref(`Desk Officer/${req.params.station}/${key}`).set(officerData);
-    res.status(201).json({ message: 'Desk Officer created/updated', key });
+
+    if (existingAuthSnapshot.exists()) {
+      return res.status(400).json({ error: 'Auth account with this username already exists' });
+    }
+
+    const timestamp = Date.now();
+    const storedOfficer = {
+      ...officerData,
+      username,
+      status,
+      createdAt: officerData.createdAt || timestamp,
+      updatedAt: timestamp
+    };
+
+    const authPayload = {
+      username,
+      password,
+      role: 'Desk Officer',
+      station,
+      status,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    await db.ref().update({
+      [officerPath]: storedOfficer,
+      [authPath]: authPayload
+    });
+
+    res.status(201).json({ message: 'Desk Officer created', key: username });
   } catch (error) {
+    console.error('Failed to create desk officer:', error);
     res.status(500).json({ error: 'Failed to create/update desk officer' });
   }
 });
 
 // Update a desk officer
 router.put('/:station/:username', async (req, res) => {
-  try {
-    const oldUsername = req.params.username;
-    const newUsername = req.body.username;
-    const station = req.params.station;
+  const station = req.params.station;
+  const oldUsername = req.params.username;
+  const payload = req.body || {};
+  const newUsername = payload.username || oldUsername;
 
-    if (!newUsername) {
-      return res.status(400).json({ error: 'Username is required' });
+  try {
+    const officerPath = `Desk Officer/${station}/${oldUsername}`;
+    const authPath = `AuthAccounts/${oldUsername}`;
+
+    const [officerSnapshot, authSnapshot] = await Promise.all([
+      db.ref(officerPath).once('value'),
+      db.ref(authPath).once('value')
+    ]);
+
+    if (!officerSnapshot.exists()) {
+      return res.status(404).json({ error: 'Desk officer not found' });
     }
 
     if (oldUsername !== newUsername) {
-      // Create new entry at new key, then delete old key
-      await db.ref(`Desk Officer/${station}/${newUsername}`).set(req.body);
-      await db.ref(`Desk Officer/${station}/${oldUsername}`).remove();
-      res.json({ message: 'Desk Officer renamed and updated' });
-    } else {
-      // Just update the existing key
-      await db.ref(`Desk Officer/${station}/${oldUsername}`).update(req.body);
-      res.json({ message: 'Desk Officer updated' });
+      const [newOfficerSnapshot, newAuthSnapshot] = await Promise.all([
+        db.ref(`Desk Officer/${station}/${newUsername}`).once('value'),
+        db.ref(`AuthAccounts/${newUsername}`).once('value')
+      ]);
+
+      if (newOfficerSnapshot.exists()) {
+        return res.status(400).json({ error: 'New desk officer username already exists in this station' });
+      }
+
+      if (newAuthSnapshot.exists()) {
+        return res.status(400).json({ error: 'Auth account with the new username already exists' });
+      }
     }
+
+    const existingOfficer = officerSnapshot.val() || {};
+    const existingAuth = authSnapshot.val() || {};
+    const timestamp = Date.now();
+    const mergedOfficer = {
+      ...existingOfficer,
+      ...payload,
+      username: newUsername,
+      updatedAt: timestamp
+    };
+
+    const authPayload = {
+      username: newUsername,
+      password: payload.password ?? existingOfficer.password ?? existingAuth.password ?? '',
+      role: 'Desk Officer',
+      station,
+      status: payload.status ?? existingOfficer.status ?? existingAuth.status ?? 'Active',
+      createdAt: existingAuth.createdAt || timestamp,
+      updatedAt: timestamp
+    };
+
+    const updates = {};
+
+    if (oldUsername !== newUsername) {
+      updates[`Desk Officer/${station}/${newUsername}`] = mergedOfficer;
+      updates[`Desk Officer/${station}/${oldUsername}`] = null;
+      updates[`AuthAccounts/${newUsername}`] = authPayload;
+      updates[`AuthAccounts/${oldUsername}`] = null;
+    } else {
+      updates[`Desk Officer/${station}/${oldUsername}`] = mergedOfficer;
+      updates[`AuthAccounts/${oldUsername}`] = authPayload;
+    }
+
+    await db.ref().update(updates);
+
+    res.json({ message: 'Desk Officer updated' });
   } catch (error) {
+    console.error('Failed to update desk officer:', error);
     res.status(500).json({ error: 'Failed to update desk officer' });
   }
 });
@@ -111,10 +208,25 @@ router.put('/:station', async (req, res) => {
 
 // Delete a desk officer
 router.delete('/:station/:username', async (req, res) => {
+  const station = req.params.station;
+  const username = req.params.username;
+
   try {
-    await db.ref(`Desk Officer/${req.params.station}/${req.params.username}`).remove();
+    const officerPath = `Desk Officer/${station}/${username}`;
+    const officerSnapshot = await db.ref(officerPath).once('value');
+
+    if (!officerSnapshot.exists()) {
+      return res.status(404).json({ error: 'Desk officer not found' });
+    }
+
+    await db.ref().update({
+      [officerPath]: null,
+      [`AuthAccounts/${username}`]: null
+    });
+
     res.json({ message: 'Desk Officer deleted' });
   } catch (error) {
+    console.error('Failed to delete desk officer:', error);
     res.status(500).json({ error: 'Failed to delete desk officer' });
   }
 });
@@ -129,4 +241,4 @@ router.delete('/:station', async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;

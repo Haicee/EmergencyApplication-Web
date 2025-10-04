@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from "react";
-import apiService from "./services/api";
-import { EyeIcon, EyeOffIcon } from '@heroicons/react/solid';
 
+import * as XLSX from 'xlsx';
+import apiService from "./services/api";
+import { EyeIcon, EyeOffIcon, DownloadIcon, SearchIcon } from '@heroicons/react/solid';
+
+import ExcelJS from 'exceljs';
 export default function ManageUsers() {
   const [activeTab, setActiveTab] = useState("Citizens");
   const [search, setSearch] = useState("");
@@ -237,7 +240,196 @@ export default function ManageUsers() {
       (u.surname && u.surname.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const openEdit = (user) => {
+  // Helper to format address: ignore empty and literal 'Not provided' values.
+  // If nothing remains, return a single 'Not provided'.
+  const normalizeAddressParts = (...parts) => {
+    const cleaned = parts
+      .map(p => (p ?? '').toString().trim())
+      .filter(s => s && s.toLowerCase() !== 'not provided');
+    return cleaned.length ? cleaned.join(', ') : 'Not provided';
+  };
+
+  // Export Citizens (filtered) to CSV
+  const handleExportCitizens = () => {
+    const headers = [
+      'Name',
+      'Contact',
+      'Gender',
+      'Medical Condition',
+      'PWD',
+      'Address',
+    ];
+
+    const rows = filteredUsers.map((user) => {
+      const name = user.username || user.name || `${user.firstName || ''} ${user.middleInitial || ''} ${user.surname || ''}`.trim();
+      const contact = user.contactNumber || '';
+      const gender = user.gender || '';
+      const medical = user.medicalCondition || 'None';
+      const pwd = user.pwdCondition || 'None';
+      const address = normalizeAddressParts(user.streetAddress, user.barangay, user.city);
+      return [name, contact, gender, medical, pwd, address];
+    });
+
+    const csvEscape = (val) => {
+      const s = `${val ?? ''}`;
+      if (/[",\n]/.test(s)) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map(csvEscape).join(','))
+      .join('\n');
+
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    const ts = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const filename = `citizens_${ts.getFullYear()}-${pad(ts.getMonth() + 1)}-${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.csv`;
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  
+  // Export Desk Officers to CSV
+  const handleExportDeskOfficers = () => {
+    const headers = ['Station','Username','Status','Station Address'];
+    const rows = (deskOfficerStations || []).flatMap((station) => {
+      const stationData = deskOfficerStationData[station] || {};
+      const { streetAddress, city, region, ...rest } = stationData;
+      const address = [streetAddress, city, region].filter(Boolean).join(', ');
+      return Object.values(rest)
+        .filter(v => v && typeof v === 'object' && v.username)
+        .map(officer => [station, officer.username || '', officer.status || '', address]);
+    });
+    const esc = v => { const s = `${v ?? ''}`; return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+    const csv = [headers, ...rows].map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a'), u = URL.createObjectURL(blob);
+    const t = new Date(), pad = n => String(n).padStart(2,'0');
+    a.href = u; a.download = `desk_officers_${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u);
+  };
+
+  // Export Responders to CSV
+  const handleExportResponders = () => {
+    const headers = ['Station','Username','Status','Full Name','Contact Number'];
+    const rows = (responderStations || []).flatMap((station) => {
+      const stationData = responderStationData[station] || {};
+      return Object.values(stationData)
+        .filter(v => v && typeof v === 'object' && v.username)
+        .map(res => [station, res.username || '', res.status || '', res.fullName || '', res.contactNumber || '']);
+    });
+    const esc = v => { const s = `${v ?? ''}`; return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+    const csv = [headers, ...rows].map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a'), u = URL.createObjectURL(blob);
+    const t = new Date(), pad = n => String(n).padStart(2,'0');
+    a.href = u; a.download = `responders_${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u);
+  };
+  // Export all (Citizens, Desk Officers, Responders) to one XLSX workbook
+  
+  // Export all (Citizens, Desk Officers, Responders) to one XLSX workbook with bold headers
+  const handleExportAllXlsx = async () => {
+    // Citizens
+    const citizensHeaders = ['Name','Contact','Gender','Medical Condition','PWD','Address'];
+    const citizensRows = (filteredUsers || []).map((user) => {
+      const name = user.username || user.name || `${user.firstName || ''} ${user.middleInitial || ''} ${user.surname || ''}`.trim();
+      const contact = user.contactNumber || '';
+      const gender = user.gender || '';
+      const medical = user.medicalCondition || 'None';
+      const pwd = user.pwdCondition || 'None';
+      const address = normalizeAddressParts(user.streetAddress, user.barangay, user.city);
+      return [name, contact, gender, medical, pwd, address];
+    });
+
+    // Desk Officers
+    let doStations = deskOfficerStations;
+    let doStationData = deskOfficerStationData;
+    if (!doStations || doStations.length === 0) {
+      try { doStations = await apiService.getDeskOfficerStations(); } catch {}
+    }
+    if (!doStationData || Object.keys(doStationData).length === 0) {
+      const tmp = {};
+      if (doStations && doStations.length) {
+        await Promise.all(doStations.map(async (s) => {
+          try { tmp[s] = await apiService.getDeskOfficersByStation(s); } catch { tmp[s] = {}; }
+        }));
+      }
+      doStationData = tmp;
+    }
+    const deskHeaders = ['Station','Username','Status','Station Address'];
+    const deskRows = (doStations || []).flatMap((station) => {
+      const sdata = doStationData[station] || {};
+      const { streetAddress, city, region, ...rest } = sdata;
+      const addr = [streetAddress, city, region].filter(Boolean).join(', ');
+      return Object.values(rest).filter(v => v && typeof v === 'object' && v.username)
+        .map(officer => [station, officer.username || '', officer.status || '', addr]);
+    });
+
+    // Responders
+    let rStations = responderStations;
+    let rStationData = responderStationData;
+    if (!rStations || rStations.length === 0) {
+      try { rStations = await apiService.getResponderStations(); } catch {}
+    }
+    if (!rStationData || Object.keys(rStationData).length === 0) {
+      const tmp = {};
+      if (rStations && rStations.length) {
+        await Promise.all(rStations.map(async (s) => {
+          try { tmp[s] = await apiService.getRespondersByStation(s); } catch { tmp[s] = {}; }
+        }));
+      }
+      rStationData = tmp;
+    }
+    const respHeaders = ['Station','Username','Status','Full Name','Contact Number'];
+    const respRows = (rStations || []).flatMap((station) => {
+      const sdata = rStationData[station] || {};
+      return Object.values(sdata).filter(v => v && typeof v === 'object' && v.username)
+        .map(res => [station, res.username || '', res.status || '', res.fullName || '', res.contactNumber || '']);
+    });
+
+    // Build workbook with ExcelJS
+    const workbook = new ExcelJS.Workbook();
+
+    const addSheet = (name, headers, rows) => {
+      const ws = workbook.addWorksheet(name);
+      ws.addRow(headers);
+      if (rows && rows.length) rows.forEach(r => ws.addRow(r));
+      // Bold the first row (headers)
+      const headerRow = ws.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.commit && headerRow.commit();
+      // Auto width
+      headers.forEach((h, i) => {
+        let max = String(h).length;
+        rows.forEach(r => { max = Math.max(max, String(r[i] ?? '').length); });
+        ws.getColumn(i + 1).width = Math.min(Math.max(10, max + 2), 60);
+      });
+      return ws;
+    };
+
+    addSheet('Citizens', citizensHeaders, citizensRows);
+    addSheet('Desk Officers', deskHeaders, deskRows);
+    addSheet('Responders', respHeaders, respRows);
+
+    // Write and download
+    const t = new Date(); const pad = (n) => String(n).padStart(2, '0');
+    const filename = `users_export_${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.xlsx`;
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };const openEdit = (user) => {
     setEditUser(user);
     setEditForm({
       name: user.username || user.name || `${user.firstName || ''} ${user.middleInitial || ''} ${user.surname || ''}`.trim(),
@@ -248,7 +440,7 @@ export default function ManageUsers() {
       pwdCondition: user.pwdCondition || '',
       medical: user.medicalCondition && user.medicalCondition !== 'None' ? true : false,
       medicalCondition: user.medicalCondition || '',
-      address: [user.streetAddress, user.barangay, user.city].filter(Boolean).join(', '),
+      address: normalizeAddressParts(user.streetAddress, user.barangay, user.city),
     });
   };
 
@@ -710,8 +902,8 @@ export default function ManageUsers() {
           )}
           {activeTab === "Citizens" && (
             <div className="flex gap-2 items-center">
-              <button className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded text-sm font-medium border border-gray-200">
-                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 4v2a2 2 0 002 2h12a2 2 0 002-2V4"/><path d="M7 10v10a2 2 0 002 2h6a2 2 0 002-2V10"/><path d="M10 14h4"/></svg>
+              <button onClick={handleExportAllXlsx} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                <DownloadIcon className="h-4 w-4"/>
                 Export
               </button>
               <input
@@ -765,7 +957,7 @@ export default function ManageUsers() {
                       <td className="px-4 py-2">{user.gender}</td>
                       <td className="px-4 py-2">{user.medicalCondition || 'None'}</td>
                       <td className="px-4 py-2">{user.pwdCondition || 'None'}</td>
-                      <td className="px-4 py-2">{[user.streetAddress, user.barangay, user.city].filter(Boolean).join(', ')}</td>
+                      <td className="px-4 py-2">{normalizeAddressParts(user.streetAddress, user.barangay, user.city)}</td>
                       <td className="px-4 py-2 flex gap-2">
                         <button className="text-blue-600 hover:underline text-xs font-medium" onClick={() => openEdit(user)}>Update</button>
                         <span className="text-gray-400">|</span>
@@ -1544,110 +1736,8 @@ export default function ManageUsers() {
   );
 }
 
-function AddStationModal({ onClose, onSuccess }) {
-  const [stationName, setStationName] = React.useState('');
-  const [streetAddress, setStreetAddress] = React.useState('');
-  const [region, setRegion] = React.useState('');
-  const [city, setCity] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
 
-  // Helper to ensure region starts with 'Region '
-  function formatRegion(input) {
-    if (!input) return '';
-    return input.trim().toLowerCase().startsWith('region ')
-      ? input.trim()
-      : `Region ${input.trim()}`;
-  }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative animate-fadeIn">
-        <h2 className="text-lg font-semibold mb-4 text-gray-700">Add New Station</h2>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!stationName.trim() || !streetAddress.trim() || !region.trim() || !city.trim()) return;
-            setLoading(true);
-            setError(null);
-            try {
-              const formattedRegion = formatRegion(region);
-              await apiService.createStation({ name: stationName, streetAddress, region: formattedRegion, city });
-              setStationName('');
-              setStreetAddress('');
-              setRegion('');
-              setCity('');
-              onSuccess();
-            } catch (err) {
-              setError(err.message);
-            } finally {
-              setLoading(false);
-            }
-          }}
-        >
-          <div>
-            <label className="block text-xs font-medium mb-1">Station Name</label>
-            <input
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={stationName}
-              onChange={e => setStationName(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Street Address</label>
-            <input
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={streetAddress}
-              onChange={e => setStreetAddress(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">City</label>
-            <input
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={city}
-              onChange={e => setCity(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Region</label>
-            <input
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={region}
-              onChange={e => setRegion(e.target.value)}
-              required
-            />
-          </div>
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-2">
-              {error}
-            </div>
-          )}
-          <div className="flex justify-end gap-2 mt-2">
-            <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700" onClick={onClose}>Cancel</button>
-            <button
-              type="submit"
-              className="px-4 py-2 rounded bg-red-500 text-white font-semibold flex items-center justify-center"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                    {/* spinner SVG path */}
-                  </svg>
-                  Adding...
-                </>
-              ) : (
-                "Add Station"
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-} 
+
+
+

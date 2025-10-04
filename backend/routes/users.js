@@ -2,61 +2,178 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../config/firebase');
 
+const USERS_NODE = 'users';
+const AUTH_NODE = 'AuthAccounts';
+const DEFAULT_ROLE = 'Citizen';
+const DEFAULT_STATUS = 'Active';
+
+const getUserKey = (data = {}) => data.username || data.fullName || data.name;
+
+const createHttpError = (status, message) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
+const handleError = (res, error, fallbackMessage) => {
+  if (error?.status) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(fallbackMessage, error);
+  return res.status(500).json({ error: fallbackMessage });
+};
+
+async function createUserRecord(data = {}, { forceRole, defaultStatus } = {}) {
+  const key = getUserKey(data);
+  if (!key) throw createHttpError(400, 'Username/fullName is required as key');
+  if (!data.password) throw createHttpError(400, 'Password is required');
+
+  const role = forceRole || data.role || DEFAULT_ROLE;
+  const status = data.status || defaultStatus || DEFAULT_STATUS;
+  const timestamp = Date.now();
+  const createdAt = data.createdAt || timestamp;
+
+  const storedUser = {
+    ...data,
+    username: key,
+    role,
+    status,
+    createdAt,
+    updatedAt: timestamp
+  };
+
+  const authPayload = {
+    username: key,
+    password: data.password,
+    role,
+    status,
+    createdAt,
+    updatedAt: timestamp
+  };
+
+  await db.ref().update({
+    [`${USERS_NODE}/${key}`]: storedUser,
+    [`${AUTH_NODE}/${key}`]: authPayload
+  });
+
+  return key;
+}
+
+async function updateUserRecord(oldKey, data = {}, { forceRole, defaultStatus } = {}) {
+  const newKey = getUserKey(data) || oldKey;
+
+  const userRef = db.ref(`${USERS_NODE}/${oldKey}`);
+  const authRef = db.ref(`${AUTH_NODE}/${oldKey}`);
+
+  const [userSnapshot, authSnapshot] = await Promise.all([
+    userRef.once('value'),
+    authRef.once('value')
+  ]);
+
+  if (!userSnapshot.exists()) {
+    throw createHttpError(404, 'User not found');
+  }
+
+  if (oldKey !== newKey) {
+    const [newUserSnapshot, newAuthSnapshot] = await Promise.all([
+      db.ref(`${USERS_NODE}/${newKey}`).once('value'),
+      db.ref(`${AUTH_NODE}/${newKey}`).once('value')
+    ]);
+
+    if (newUserSnapshot.exists()) {
+      throw createHttpError(400, 'New username already exists');
+    }
+
+    if (newAuthSnapshot.exists()) {
+      throw createHttpError(400, 'Auth account with the new username already exists');
+    }
+  }
+
+  const existingUser = userSnapshot.val() || {};
+  const existingAuth = authSnapshot.val() || {};
+
+  const timestamp = Date.now();
+  const role = forceRole || data.role || existingUser.role || existingAuth.role || DEFAULT_ROLE;
+  const status =
+    data.status ??
+    existingUser.status ??
+    existingAuth.status ??
+    (defaultStatus ?? DEFAULT_STATUS);
+  const createdAt = existingUser.createdAt || existingAuth.createdAt || timestamp;
+  const password = data.password ?? existingUser.password ?? existingAuth.password ?? '';
+
+  const mergedUser = {
+    ...existingUser,
+    ...data,
+    username: newKey,
+    role,
+    status,
+    createdAt,
+    updatedAt: timestamp
+  };
+
+  const authPayload = {
+    username: newKey,
+    password,
+    role,
+    status,
+    createdAt,
+    updatedAt: timestamp
+  };
+
+  const updates = {};
+
+  if (oldKey !== newKey) {
+    updates[`${USERS_NODE}/${newKey}`] = mergedUser;
+    updates[`${USERS_NODE}/${oldKey}`] = null;
+    updates[`${AUTH_NODE}/${newKey}`] = authPayload;
+    updates[`${AUTH_NODE}/${oldKey}`] = null;
+  } else {
+    updates[`${USERS_NODE}/${oldKey}`] = mergedUser;
+    updates[`${AUTH_NODE}/${oldKey}`] = authPayload;
+  }
+
+  await db.ref().update(updates);
+
+  return newKey;
+}
+
+async function deleteUserRecord(key) {
+  const userPath = `${USERS_NODE}/${key}`;
+  const snapshot = await db.ref(userPath).once('value');
+
+  if (!snapshot.exists()) {
+    throw createHttpError(404, 'User not found');
+  }
+
+  await db.ref().update({
+    [userPath]: null,
+    [`${AUTH_NODE}/${key}`]: null
+  });
+}
+
 // USERS CRUD (keyed by full name)
 router.get('/', async (req, res) => {
   try {
-    const snapshot = await db.ref('users').once('value');
+    const snapshot = await db.ref(USERS_NODE).once('value');
     res.json(snapshot.val() || {});
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
-router.get('/:username', async (req, res) => {
-  try {
-    const snapshot = await db.ref(`users/${req.params.username}`).once('value');
-    const user = snapshot.val();
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch user' });
-  }
-});
-
 router.post('/', async (req, res) => {
   try {
-    const userData = req.body;
-    const key = userData.username || userData.fullName || userData.name;
-    if (!key) return res.status(400).json({ error: 'Username/fullName is required as key' });
-    await db.ref(`users/${key}`).set(userData);
+    const key = await createUserRecord(req.body, {});
     res.status(201).json({ message: 'User created/updated', key });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create/update user' });
+    handleError(res, error, 'Failed to create/update user');
   }
 });
 
-router.put('/:username', async (req, res) => {
-  try {
-    await db.ref(`users/${req.params.username}`).update(req.body);
-    res.json({ message: 'User updated' });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to update user' });
-  }
-});
-
-router.delete('/:username', async (req, res) => {
-  try {
-    await db.ref(`users/${req.params.username}`).remove();
-    res.json({ message: 'User deleted' });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to delete user' });
-  }
-});
-
-// CITIZENS CRUD operations (for frontend compatibility)
 router.get('/citizens', async (req, res) => {
   try {
-    const snapshot = await db.ref('users').once('value');
+    const snapshot = await db.ref(USERS_NODE).once('value');
     res.json(snapshot.val() || {});
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch citizens' });
@@ -65,7 +182,7 @@ router.get('/citizens', async (req, res) => {
 
 router.get('/citizens/:id', async (req, res) => {
   try {
-    const snapshot = await db.ref(`users/${req.params.id}`).once('value');
+    const snapshot = await db.ref(`${USERS_NODE}/${req.params.id}`).once('value');
     const citizen = snapshot.val();
     if (!citizen) return res.status(404).json({ error: 'Citizen not found' });
     res.json(citizen);
@@ -76,42 +193,64 @@ router.get('/citizens/:id', async (req, res) => {
 
 router.post('/citizens', async (req, res) => {
   try {
-    const citizenData = req.body;
-    const key = citizenData.username || citizenData.fullName || citizenData.name;
-    if (!key) return res.status(400).json({ error: 'Username/fullName is required as key' });
-    await db.ref(`users/${key}`).set(citizenData);
+    const key = await createUserRecord(
+      { ...req.body, role: req.body?.role || DEFAULT_ROLE },
+      { forceRole: DEFAULT_ROLE, defaultStatus: DEFAULT_STATUS }
+    );
     res.status(201).json({ message: 'Citizen created/updated', key });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create/update citizen' });
+    handleError(res, error, 'Failed to create/update citizen');
   }
 });
 
 router.put('/citizens/:id', async (req, res) => {
   try {
-    const oldId = req.params.id;
-    const newId = req.body.username || req.body.fullName || req.body.name;
-    if (!newId) return res.status(400).json({ error: 'Username/fullName is required as key' });
-
-    if (oldId !== newId) {
-      // Copy to new key, then delete old key
-      await db.ref(`users/${newId}`).set(req.body);
-      await db.ref(`users/${oldId}`).remove();
-      res.json({ message: 'Citizen renamed and updated' });
-    } else {
-      await db.ref(`users/${oldId}`).update(req.body);
-      res.json({ message: 'Citizen updated' });
-    }
+    const newKey = await updateUserRecord(
+      req.params.id,
+      { ...req.body, role: req.body?.role || DEFAULT_ROLE },
+      { forceRole: DEFAULT_ROLE, defaultStatus: DEFAULT_STATUS }
+    );
+    res.json({ message: 'Citizen updated', key: newKey });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update citizen' });
+    handleError(res, error, 'Failed to update citizen');
   }
 });
 
 router.delete('/citizens/:id', async (req, res) => {
   try {
-    await db.ref(`users/${req.params.id}`).remove();
+    await deleteUserRecord(req.params.id);
     res.json({ message: 'Citizen deleted' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete citizen' });
+    handleError(res, error, 'Failed to delete citizen');
+  }
+});
+
+router.get('/:username', async (req, res) => {
+  try {
+    const snapshot = await db.ref(`${USERS_NODE}/${req.params.username}`).once('value');
+    const user = snapshot.val();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+router.put('/:username', async (req, res) => {
+  try {
+    const newKey = await updateUserRecord(req.params.username, req.body, {});
+    res.json({ message: 'User updated', key: newKey });
+  } catch (error) {
+    handleError(res, error, 'Failed to update user');
+  }
+});
+
+router.delete('/:username', async (req, res) => {
+  try {
+    await deleteUserRecord(req.params.username);
+    res.json({ message: 'User deleted' });
+  } catch (error) {
+    handleError(res, error, 'Failed to delete user');
   }
 });
 

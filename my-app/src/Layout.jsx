@@ -24,16 +24,18 @@ export default function Layout({ onLogout }) {
           className={`z-20 bg-white border-r min-h-screen flex flex-col fixed top-0 left-0 h-full transition-all duration-300 ${sidebarOpen ? "w-56" : "w-20"}`}
         >
           <div className="flex flex-col items-center gap-2 px-4 py-6">
-            <span className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-red-400 to-red-600 shadow-md">
-              {/* Shield Icon */}
-              <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="white">
-                <rect width="24" height="24" rx="12" fill="none"/>
-                <path d="M12 12a3 3 0 100-6 3 3 0 000 6z" stroke="white" strokeWidth="1.5"/>
-                <path d="M19.5 19.5v-1.2a3.3 3.3 0 00-3.3-3.3h-8.4a3.3 3.3 0 00-3.3 3.3v1.2" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </span>
-            {sidebarOpen && <span className="font-bold text-sm text-center">ResMe</span>}
+            <img
+              src={`${process.env.PUBLIC_URL}/Resme LOGO..png`}
+              alt="ResMe logo"
+              className="w-24 h-24 rounded-lg object-contain"
+            />
+            {sidebarOpen && (
+              <span className="text-base font-extrabold tracking-tight text-center bg-gradient-to-r from-red-600 to-blue-600 text-transparent bg-clip-text">
+                ResMe
+              </span>
+            )}
           </div>
+          
           {/* Nav links only show when sidebarOpen */}
           {sidebarOpen && (
             <nav className="mt-2 flex-1">

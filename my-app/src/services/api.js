@@ -207,6 +207,67 @@ class ApiService {
       method: 'DELETE',
     });
   }
+
+  // Emergency Calls operations
+  async getEmergencyCalls() {
+    return this.request('/emergency-calls');
+  }
+
+  async getEmergencyCallStats() {
+    return this.request('/emergency-calls/stats');
+  }
+
+  async getEmergencyCall(id) {
+    return this.request(`/emergency-calls/${id}`);
+  }
+
+  async createEmergencyCall(callData) {
+    return this.request('/emergency-calls', {
+      method: 'POST',
+      body: JSON.stringify(callData),
+    });
+  }
+
+  async updateEmergencyCall(id, callData) {
+    return this.request(`/emergency-calls/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(callData),
+    });
+  }
+
+  async deleteEmergencyCall(id) {
+    return this.request(`/emergency-calls/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Dashboard statistics
+  async getDashboardStats() {
+    try {
+      const [users, emergencyStats] = await Promise.all([
+        this.getCitizens(),
+        this.getEmergencyCallStats()
+      ]);
+
+      const usersArray = Object.values(users);
+      const totalUsers = usersArray.length;
+      
+      // Get recent registrations (last 10 users sorted by createdAt)
+      const recentUsers = usersArray
+        .filter(user => user.createdAt)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 10);
+
+      return {
+        totalUsers,
+        emergencyStats,
+        recentUsers
+      };
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      throw error;
+    }
+  }
 }
 
 export default new ApiService();

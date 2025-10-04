@@ -7,12 +7,12 @@ const morgan = require('morgan');
 const usersRoutes = require('./routes/users');
 const deskOfficersRoutes = require('./routes/deskOfficers');
 const respondersRoutes = require('./routes/responders');
+const emergencyCallsRoutes = require('./routes/emergencyCalls');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(helmet());
 app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
@@ -22,6 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/users', usersRoutes);
 app.use('/api/desk-officers', deskOfficersRoutes);
 app.use('/api/responders', respondersRoutes);
+app.use('/api/emergency-calls', emergencyCallsRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -41,7 +42,8 @@ app.get('/', (req, res) => {
       health: '/health',
       users: '/api/users',
       deskOfficers: '/api/desk-officers',
-      responders: '/api/responders'
+      responders: '/api/responders',
+      emergencyCalls: '/api/emergency-calls'
     }
   });
 });

@@ -63,16 +63,15 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
     _checkLoginState();
   }
-
   Future<void> _checkLoginState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? savedUsername = prefs.getString('username');
       final String? savedUserType = prefs.getString('userType');
-      
-      // Add a small delay for splash effect
-      await Future.delayed(Duration(seconds: 2));
-      
+
+      // Small delay for splash effect
+      await Future.delayed(const Duration(seconds: 2));
+
       if (savedUsername != null && savedUsername.isNotEmpty) {
         // User is already logged in, navigate to appropriate homepage
         if (savedUserType == 'deskOfficer') {
@@ -114,7 +113,6 @@ class _SplashScreenState extends State<SplashScreen> {
         );
       }
     } catch (e) {
-      print('Error checking login state: $e');
       // On error, go to login page
       Navigator.pushReplacement(
         context,
@@ -126,26 +124,18 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFE74C3C),
+      backgroundColor: const Color(0xFFE74C3C),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(25),
-              ),
-              child: Icon(
-                Icons.security,
-                size: 50,
-                color: Colors.white,
-              ),
+            Image.asset(
+              'assets/images/Resme LOGO..png',
+              height: 135,
+              fit: BoxFit.contain,
             ),
-            SizedBox(height: 24),
-            Text(
+            const SizedBox(height: 24),
+            const Text(
               'Emergency App',
               style: TextStyle(
                 fontSize: 32,
@@ -153,7 +143,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: Colors.white,
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             Text(
               'Fast Emergency Response',
               style: TextStyle(
@@ -161,8 +151,8 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: Colors.white.withOpacity(0.9),
               ),
             ),
-            SizedBox(height: 40),
-            CircularProgressIndicator(
+            const SizedBox(height: 40),
+            const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
             ),
           ],
@@ -172,47 +162,25 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-class LoginPage extends StatefulWidget
-{
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
-    @override
-    LoginPageDetails createState() => LoginPageDetails();
+  @override
+  LoginPageDetails createState() => LoginPageDetails();
 }
 
-class LoginPageDetails extends State<LoginPage>
-{
+class LoginPageDetails extends State<LoginPage> {
+    // Controllers and state fields (restored)
     final TextEditingController fullname = TextEditingController();
     final TextEditingController password = TextEditingController();
     bool isConnected = true;
     bool isLocationEnabled = false;
     bool isMicrophoneEnabled = false;
 
-    // Track if dialogs are already showing to prevent duplicates
+    // Dialog flags
     bool _isShowingLocationDialog = false;
     bool _isShowingMicrophoneDialog = false;
     bool _isShowingConnectionDialog = false;
-
-    @override
-    void initState()
-    {
-      super.initState();
-      // Reset dialog flags on initialization
-      _isShowingLocationDialog = false;
-      _isShowingMicrophoneDialog = false;
-      _isShowingConnectionDialog = false;
-      
-      // Initialize permissions and connectivity
-      _initializePermissions();
-      // Listen to connectivity changes
-      Connectivity().onConnectivityChanged.listen((ConnectivityResult result)
-      {
-        setState(()
-        {
-          isConnected = result != ConnectivityResult.none;
-        });
-      });
-    }
 
     // Initialize all permissions and connectivity status
     Future<void> _initializePermissions() async {
@@ -796,28 +764,29 @@ class LoginPageDetails extends State<LoginPage>
             (
               child: SingleChildScrollView
               (
-                child: Padding
-                (
+                child: Padding(
                   padding: const EdgeInsets.all(20.0), // space around the content
-                  child: Column
-                  (
+                  child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,  //center vertically
                     crossAxisAlignment: CrossAxisAlignment.stretch, // para mag full width
-                    
-                    children: 
-                    [
-                        // Status indicator buttons that show dialogs when pressed
-                        // Removed interactive buttons as they are now shown automatically
+                    children: [
+                      // Status indicator buttons that show dialogs when pressed
+                      // Removed interactive buttons as they are now shown automatically
 
-                      FlutterLogo(size: 100),  // logo sa emergency ni sample
-                      SizedBox(height: 40),  // space between logo and input
+                      Center(
+                        child: Image.asset(
+                          'assets/images/Resme LOGO..png',
+                          height: 135,
+                          fit: BoxFit.contain,
+                        ),
+                      ), // official app logo
+                      SizedBox(height: 20),  // space between logo and input
 
                       Text  // Welcome text
                       (
                         "Welcome",
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 42, fontWeight: FontWeight.bold, color: Colors.white,),
-                        
                       ),
 
                       Text // description
@@ -825,11 +794,9 @@ class LoginPageDetails extends State<LoginPage>
                         "An Emergency Mobile App",
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.normal, color: Colors.white,),
-
                       ),
                       SizedBox(height: 50),
 
-                      
                       TextField  // for name TextField (fullname)
                       (
                         controller: fullname,
@@ -1023,218 +990,22 @@ class LoginPageDetails extends State<LoginPage>
                             } catch (e) {
                               debugPrint('AuthAccounts check error: $e');
                             }
-
-                            // 1. Check Desk Officer credentials (legacy, kept for backward compatibility)
-                            final deskOfficerRef = FirebaseDatabase.instance.ref().child('Desk Officer');
-                            bool foundDeskOfficer = false;
-                            String foundOfficerId = '';
-                            String foundStation = '';
-                            Map<String, dynamic>? officerData;
-
-                            final stationSnapshot = await deskOfficerRef.get();
-                            if (stationSnapshot.exists) {
-                              final stationsRaw = stationSnapshot.value;
-                              if (stationsRaw is Map) {
-                                final stations = stationsRaw as Map<dynamic, dynamic>;
-                                for (final stationEntry in stations.entries) {
-                                  if (stationEntry.value is Map) {
-                                    final officersRaw = stationEntry.value;
-                                    if (officersRaw is Map) {
-                                      final officers = officersRaw as Map<dynamic, dynamic>;
-                                      for (final officerEntry in officers.entries) {
-                                        if (officerEntry.value is Map) {
-                                          final data = Map<String, dynamic>.from(officerEntry.value as Map);
-                                          if (data['username'] == username && data['password'].toString() == userPassword) {
-                                            foundDeskOfficer = true;
-                                            foundOfficerId = officerEntry.key;
-                                            foundStation = stationEntry.key;
-                                            officerData = Map<String, dynamic>.from(data);
-                                            break;
-                                          }
-                                        }
-                                      }
-                                      if (foundDeskOfficer) break;
-                                    } else {
-                                      print('Officers node is not a Map: ${officersRaw}');
-                                    }
-                                  } else {
-                                    print('Station entry is not a Map: ${stationEntry.value}');
-                                  }
-                                }
-                              } else {
-                                print('Stations node is not a Map: ${stationsRaw}');
-                              }
-                            }
-
-                            if (foundDeskOfficer) {
-                              // Save login state for desk officer
-                              final prefs = await SharedPreferences.getInstance();
-                              await prefs.setString('username', username);
-                              await prefs.setString('userType', 'deskOfficer');
-                              await prefs.setString('officerId', foundOfficerId);
-                              
-                              // Login as Desk Officer
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => DeskOfficerHomePage(
-                                    username: username,
-                                    officerId: foundOfficerId,
+                            // If we reach here, centralized AuthAccounts did not authenticate this user.
+                            // Show a single failure message to avoid falling back to legacy trees.
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: Text("Login Failed"),
+                                content: Text("Account not found in AuthAccounts. Please register or try again."),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: Text("Try Again"),
                                   ),
-                                ),
-                              );
-                              return;
-                            }
-
-                            // 2. Check Responder credentials
-                            final responderRef = FirebaseDatabase.instance.ref().child('Responders');
-                            bool foundResponder = false;
-                            String foundResponderId = '';
-                            String foundResponderStation = '';
-                            Map<String, dynamic>? responderData;
-
-                            final responderSnapshot = await responderRef.get();
-                            if (responderSnapshot.exists) {
-                              final stationsRaw = responderSnapshot.value;
-                              if (stationsRaw is Map) {
-                                final stations = stationsRaw as Map<dynamic, dynamic>;
-                                for (final stationEntry in stations.entries) {
-                                  if (stationEntry.value is Map) {
-                                    final respondersRaw = stationEntry.value;
-                                    if (respondersRaw is Map) {
-                                      final responders = respondersRaw as Map<dynamic, dynamic>;
-                                      for (final responderEntry in responders.entries) {
-                                        if (responderEntry.value is Map) {
-                                          final data = Map<String, dynamic>.from(responderEntry.value as Map);
-                                          if (data['username'] == username && data['password'].toString() == userPassword) {
-                                            foundResponder = true;
-                                            foundResponderId = responderEntry.key;
-                                            foundResponderStation = stationEntry.key;
-                                            responderData = Map<String, dynamic>.from(data);
-                                            break;
-                                          }
-                                        }
-                                      }
-                                      if (foundResponder) break;
-                                    } else {
-                                      print('Responders node is not a Map: ${respondersRaw}');
-                                    }
-                                  } else {
-                                    print('Station entry is not a Map: ${stationEntry.value}');
-                                  }
-                                }
-                              } else {
-                                print('Responder stations node is not a Map: ${stationsRaw}');
-                              }
-                            }
-
-                            if (foundResponder) {
-                              // Save login state for responder
-                              final prefs = await SharedPreferences.getInstance();
-                              await prefs.setString('username', username);
-                              await prefs.setString('userType', 'responder');
-                              await prefs.setString('responderId', foundResponderId);
-                              
-                              // Login as Responder
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => ResponderHomePage(
-                                    username: username,
-                                    responderId: foundResponderId,
-                                  ),
-                                ),
-                              );
-                              return;
-                            }
-
-                            // 3. Query Firebase for the user (citizen)
-                            final userSnapshot = await FirebaseDatabase.instance
-                                .ref()
-                                .child('users')
-                                .orderByChild('username')
-                                .equalTo(username)
-                                .get();
-
-                            if (userSnapshot.exists) {
-                              Map<String, dynamic>? userData;
-                              try {
-                                final firstChild = userSnapshot.children.first;
-                                if (firstChild.value is Map) {
-                                  userData = Map<String, dynamic>.from(firstChild.value as Map);
-                                }
-                              } catch (e) {
-                                debugPrint('Error parsing user data: $e');
-                              }
-
-                              if (userData != null && userData['password'] == userPassword) {
-                                debugPrint('Citizen login successful for: $username'); // Debug log
-                                
-                                // Save login state for citizen
-                                final prefs = await SharedPreferences.getInstance();
-                                await prefs.setString('username', username);
-                                await prefs.setString('userType', 'citizen');
-                                
-                                // Login successful
-                                debugPrint('Navigating to HomePage...'); // Debug log
-                                Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => HomePage(username: username),
-                                  ),
-                                );
-                              } else {
-                                // Password doesn't match
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: Text("Login Failed"),
-                                      titleTextStyle: TextStyle(
-                                        fontSize: 25, 
-                                        fontWeight: FontWeight.bold, 
-                                        color: Colors.black
-                                      ),
-                                    content: Text("Incorrect password. Please try again."),
-                                      contentTextStyle: TextStyle(
-                                        fontSize: 19, 
-                                        color: const Color.fromARGB(255, 51, 50, 50)
-                                      ),
-                                      actions:[
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                              child: Text("Try Again")
-                                      )
-                                    ],
-                                      actionsPadding: EdgeInsets.only(bottom: 10, right: 15),
-                                  )
-                                );
-                              }
-                            } else {
-                              // User not found
-                              showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: Text("Login Failed"),
-                                      titleTextStyle: TextStyle(
-                                        fontSize: 25, 
-                                        fontWeight: FontWeight.bold, 
-                                        color: Colors.black
-                                      ),
-                                      content: Text("Username not found. Please register or try again."),
-                                      contentTextStyle: TextStyle(
-                                        fontSize: 19, 
-                                        color: const Color.fromARGB(255, 51, 50, 50)
-                                      ),
-                                      actions:[
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                              child: Text("Try Again")
-                                    )
-                                  ],
-                                      actionsPadding: EdgeInsets.only(bottom: 10, right: 15),
-                                  )
-                              );
-                            }
+                                ],
+                              ),
+                            );
+                            return;
                           },
                           style: ElevatedButton.styleFrom(
                             padding: EdgeInsets.symmetric(

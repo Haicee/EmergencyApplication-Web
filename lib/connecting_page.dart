@@ -35,7 +35,7 @@ class _ConnectingPageState extends State<ConnectingPage>
         
         if (widget.station != null) {
           // Set up timeout timer (30 seconds)
-          _timeoutTimer = Timer(const Duration(seconds: 30), () {
+          _timeoutTimer = Timer(const Duration(seconds: 60), () {
             _cancelCallDueToTimeout();
           });
           // Start subtle vibration pulses while connecting (every 3 seconds)
@@ -123,7 +123,7 @@ class _ConnectingPageState extends State<ConnectingPage>
     void _startVibrationPulse() {
       // Use subtle vibration every 3 seconds while connecting
       _vibrationTimer?.cancel();
-      _vibrationTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
         try {
           final canVibrate = await Vibration.hasVibrator() ?? false;
           if (canVibrate) {

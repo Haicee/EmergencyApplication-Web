@@ -538,15 +538,15 @@ class RegistrationForm extends State<RegisterPage> {
                             children: [
                                 // App Icon and Title
                                 Container(
-                                    width: 80,
-                                    height: 80,
-                                    decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(20),
+                                    width: 150,
+                                    height: 150,
+                                    padding: EdgeInsets.all(8),
+                                    child: Image.asset(
+                                      'assets/images/Resme LOGO..png',
+                                      fit: BoxFit.contain,
                                     ),
-                                    child: FlutterLogo(size: 100),
                                 ),
-                                SizedBox(height: 20),
+                                SizedBox(height: 5),
                                 Text(
                                     'Register Here!',
                                     style: TextStyle(
@@ -555,7 +555,7 @@ class RegistrationForm extends State<RegisterPage> {
                                         color: Colors.white,
                                     ),
                                 ),
-                                SizedBox(height: 8),
+                                SizedBox(height: 5),
                                 Text(
                                     'Set up your emergency contact profile',
                                     style: TextStyle(

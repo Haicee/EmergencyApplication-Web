@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'incomingCall.dart'; // Added import for IncomingCallPage
 import 'components/missedViewDetails.dart';
 import 'dart:async';
@@ -455,13 +456,22 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
               ),
             ),
             ElevatedButton(
-      onPressed: () {
+              onPressed: () async {
+                // Clear session before navigating to login
+                try {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('username');
+                  await prefs.remove('userType');
+                  await prefs.remove('officerId');
+                  await prefs.remove('responderId');
+                  await prefs.remove('responderStation');
+                } catch (_) {}
                 Navigator.of(context).pop();
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-          (route) => false,
-        );
-      },
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                  (route) => false,
+                );
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,

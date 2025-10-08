@@ -11,14 +11,30 @@ import Login from "./Login";
 import ReportStatus from "./ReportStatus";
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // Persist login across refresh using localStorage set in Login.jsx
+  const initialSession = (() => {
+    try {
+      const raw = localStorage.getItem('resme_admin');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const isInactive = !!(initialSession && (initialSession.status || 'Active') === 'Inactive');
+  if (isInactive) {
+    // Clear invalid session if account is inactive
+    try { localStorage.removeItem('resme_admin'); } catch {}
+  }
+  const [isLoggedIn, setIsLoggedIn] = useState(!!(initialSession && initialSession.role === 'Admin' && !isInactive));
+  const [loginBanner, setLoginBanner] = useState(isInactive ? 'Account is Inactivated. Please activate it to access the Admin.' : '');
 
   const handleLogout = () => {
+    try { localStorage.removeItem('resme_admin'); } catch {}
     setIsLoggedIn(false);
   };
 
   if (!isLoggedIn) {
-    return <Login onLogin={() => setIsLoggedIn(true)} />;
+    return <Login onLogin={() => setIsLoggedIn(true)} initialError={loginBanner} />;
   }
 
   return (

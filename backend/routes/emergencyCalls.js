@@ -3,6 +3,7 @@ const router = express.Router();
 const { db } = require('../config/firebase');
 
 const EMERGENCY_CALLS_NODE = 'emergencyCalls';
+const RESPONDERS_NODE = 'Responders';
 
 // Get all emergency calls
 router.get('/', async (req, res) => {
@@ -65,6 +66,63 @@ router.get('/stats', async (req, res) => {
   } catch (error) {
     console.error('Error fetching emergency call stats:', error);
     res.status(500).json({ error: 'Failed to fetch emergency call statistics' });
+  }
+});
+
+// Get report statistics from responder completed calls grouped by status
+router.get('/report-stats', async (req, res) => {
+  try {
+    const snapshot = await db.ref(RESPONDERS_NODE).once('value');
+    const data = snapshot.val() || {};
+
+    const reportCounts = { total: 0, byStatus: {} };
+
+    const normalizeStatus = (value) => {
+      if (!value) return 'Unknown';
+      return value.toString().trim().toLowerCase();
+    };
+
+    const titleCase = (str) => {
+      return str
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    };
+
+    const countReports = (node) => {
+      if (!node || typeof node !== 'object') return;
+
+      Object.values(node).forEach((value) => {
+        if (!value || typeof value !== 'object') return;
+
+        if (value.ReceivedCallDetails?.Completed) {
+          Object.values(value.ReceivedCallDetails.Completed).forEach((report) => {
+            const statusKey = normalizeStatus(report?.status) || 'unknown';
+            reportCounts.total += 1;
+            reportCounts.byStatus[statusKey] = (reportCounts.byStatus[statusKey] || 0) + 1;
+          });
+        } else {
+          countReports(value);
+        }
+      });
+    };
+
+    countReports(data);
+
+    const formattedByStatus = Object.entries(reportCounts.byStatus).reduce((acc, [status, count]) => {
+      const label = status === 'unknown' ? 'Unknown' : titleCase(status);
+      acc[label] = count;
+      return acc;
+    }, {});
+
+    res.json({
+      total: reportCounts.total,
+      byStatus: formattedByStatus,
+    });
+  } catch (error) {
+    console.error('Error fetching report statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch report statistics' });
   }
 });
 

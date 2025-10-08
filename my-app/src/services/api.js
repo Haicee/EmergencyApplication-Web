@@ -31,6 +31,23 @@ class ApiService {
     }
   }
 
+  // Authentication
+  async adminLogin(username, password) {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+  }
+
+  // One-time bootstrap for creating an Admin account (requires server token)
+  async bootstrapAdmin({ username, password, fullName }, setupToken) {
+    return this.request('/auth/bootstrap-admin', {
+      method: 'POST',
+      headers: { 'x-admin-setup-token': setupToken },
+      body: JSON.stringify({ username, password, fullName })
+    });
+  }
+
   // Citizens CRUD operations
   async getCitizens() {
     return this.request('/users');
@@ -217,6 +234,10 @@ class ApiService {
     return this.request('/emergency-calls/stats');
   }
 
+  async getReportStats() {
+    return this.request('/emergency-calls/report-stats');
+  }
+
   async getEmergencyCall(id) {
     return this.request(`/emergency-calls/${id}`);
   }
@@ -244,9 +265,10 @@ class ApiService {
   // Dashboard statistics
   async getDashboardStats() {
     try {
-      const [users, emergencyStats] = await Promise.all([
+      const [users, emergencyStats, reportStats] = await Promise.all([
         this.getCitizens(),
-        this.getEmergencyCallStats()
+        this.getEmergencyCallStats(),
+        this.getReportStats()
       ]);
 
       const usersArray = Object.values(users);
@@ -261,6 +283,7 @@ class ApiService {
       return {
         totalUsers,
         emergencyStats,
+        reportStats,
         recentUsers
       };
     } catch (error) {

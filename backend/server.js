@@ -8,6 +8,7 @@ const usersRoutes = require('./routes/users');
 const deskOfficersRoutes = require('./routes/deskOfficers');
 const respondersRoutes = require('./routes/responders');
 const emergencyCallsRoutes = require('./routes/emergencyCalls');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +24,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/desk-officers', deskOfficersRoutes);
 app.use('/api/responders', respondersRoutes);
 app.use('/api/emergency-calls', emergencyCallsRoutes);
+app.use('/api/auth', authRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -43,7 +45,8 @@ app.get('/', (req, res) => {
       users: '/api/users',
       deskOfficers: '/api/desk-officers',
       responders: '/api/responders',
-      emergencyCalls: '/api/emergency-calls'
+      emergencyCalls: '/api/emergency-calls',
+      auth: '/api/auth'
     }
   });
 });

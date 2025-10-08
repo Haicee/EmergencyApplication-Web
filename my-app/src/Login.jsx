@@ -1,19 +1,37 @@
   import React, { useState } from "react";
+  import apiService from "./services/api";
 
-export default function Login({ onLogin }) {
+export default function Login({ onLogin, initialError = '' }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) {
       setError("Please enter both email and password.");
       return;
     }
     setError("");
-    onLogin();
+    setLoading(true);                                                       
+    try {
+      // Backend expects `username`; we use the email field as username
+      const admin = await apiService.adminLogin(email, password);
+      // Optionally persist minimal session
+      try { localStorage.setItem('resme_admin', JSON.stringify(admin)); } catch {}
+      onLogin && onLogin(admin);
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('inactive')) {
+        setError('Account is Inactivated. Please activate it to access the Admin.');
+      } else {
+        setError(err.message || 'Login failed');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -109,7 +127,7 @@ export default function Login({ onLogin }) {
               type="submit" 
               className="w-full bg-gradient-to-r from-red-600 to-red-700 text-white py-3 px-4 rounded-xl font-semibold hover:from-red-700 hover:to-red-800 transform hover:scale-[1.02] transition-all duration-200 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:ring-offset-transparent"
             >
-              Sign In
+              {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
 

@@ -54,7 +54,7 @@ router.post('/:station', async (req, res) => {
   const responderData = req.body;
   const username = responderData?.username;
   const password = responderData?.password;
-  const status = responderData?.status || 'Available';
+  const status = responderData?.status || 'Active';
 
   if (!username) {
     return res.status(400).json({ error: 'Responder username is required as key' });
@@ -154,7 +154,7 @@ router.put('/:station/:username', async (req, res) => {
       password: payload.password ?? existingResponder.password ?? existingAuth.password ?? '',
       role: 'Responder',
       station,
-      status: payload.status ?? existingResponder.status ?? existingAuth.status ?? 'Available',
+      status: payload.status ?? existingResponder.status ?? existingAuth.status ?? 'Active',
       createdAt: existingAuth.createdAt || timestamp,
       updatedAt: timestamp
     };

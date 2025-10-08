@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { ClockIcon, CheckCircleIcon, XCircleIcon, DownloadIcon, SearchIcon, TrashIcon, PencilIcon } from '@heroicons/react/solid';
+import { PhoneIncomingIcon, PhoneMissedCallIcon, PhoneOutgoingIcon, DownloadIcon, SearchIcon, TrashIcon, PencilIcon } from '@heroicons/react/solid';
+import ExcelJS from 'exceljs';
 import { ref, onValue, off } from 'firebase/database';
 import { database } from './firebase';
 
@@ -30,13 +31,13 @@ const StatusBadge = ({ status }) => {
   return <span className={`${baseClasses} bg-gray-100 text-gray-600`}>{formatStatusLabel(status)}</span>;
 };
 
-const StatCard = ({ title, value, icon }) => (
-  <div className="bg-white p-5 rounded-lg shadow flex justify-between items-center">
+const StatCard = ({ title, value, icon, iconBg = "bg-gray-100 text-gray-600" }) => (
+  <div className="bg-white p-6 rounded-2xl border border-gray-100 flex justify-between items-center shadow-sm hover:shadow-md transition-shadow duration-200">
     <div>
-      <div className="text-sm text-gray-500">{title}</div>
-      <div className="text-2xl font-bold text-gray-800">{value}</div>
+      <p className="text-sm font-medium text-gray-500">{title}</p>
+      <p className="mt-2 text-3xl font-semibold text-gray-900">{value}</p>
     </div>
-    <div className="bg-gray-100 p-3 rounded-full">
+    <div className={`p-3 rounded-xl ${iconBg}`}>
       {icon}
     </div>
   </div>
@@ -204,6 +205,68 @@ export default function EmergencyCalls() {
       String(call.time).toLowerCase().includes(q)
     );
   });
+  // Export the calls to XLSX with separate sheets and bold headers (mirrors ManageUsers export styling)
+  const handleExportCalls = async () => {
+    const headers = ['Call ID', 'Caller', 'Receiver', 'Station', 'Date and Time', 'Status'];
+    const personCell = (name, type) => {
+      const n = name || '';
+      if (!type) return n;
+      return n ? `${n} (${type})` : type;
+    };
+    const toRows = (calls = []) => (calls || []).map((c) => ([
+      c.id ?? '',
+      personCell(c.caller, c.callerType),
+      personCell(c.receiver, c.receiverType),
+      c.station || '',
+      c.time || '',
+      c.status || '',
+    ]));
+
+    const workbook = new ExcelJS.Workbook();
+
+    const addSheet = (sheetName, rows) => {
+      const ws = workbook.addWorksheet(sheetName);
+      ws.addRow(headers);
+      rows.forEach(row => ws.addRow(row));
+      const headerRow = ws.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.commit && headerRow.commit();
+      headers.forEach((header, idx) => {
+        let max = String(header).length;
+        rows.forEach(row => {
+          const cellValue = String(row[idx] ?? '');
+          const segments = cellValue.split(/\r?\n/);
+          segments.forEach(seg => {
+            max = Math.max(max, seg.length);
+          });
+        });
+        ws.getColumn(idx + 1).width = Math.min(Math.max(10, max + 2), 60);
+      });
+    };
+
+    const sheets = [
+      ['All Calls', toRows(allCalls)],
+      ['Active Calls', toRows(activeCalls)],
+      ['Missed Calls', toRows(missedCalls)],
+      ['Answered Calls', toRows(answeredCalls)],
+    ];
+    sheets.forEach(([name, rows]) => addSheet(name, rows));
+
+    const ts = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const filename = `emergency_calls_${ts.getFullYear()}-${pad(ts.getMonth() + 1)}-${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.xlsx`;
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const getButtonClasses = (filter) => {
     const baseClasses = "px-4 py-2 text-sm font-medium rounded-lg";
@@ -217,9 +280,24 @@ export default function EmergencyCalls() {
     <div className="p-6 bg-gray-50 min-h-full">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         {/* Stat Cards */}
-        <StatCard title="Ongoing Calls" value={String(activeCalls.length)} icon={<ClockIcon className="h-6 w-6 text-orange-500" />} />
-        <StatCard title="Answered Calls" value={String(answeredCalls.length)} icon={<CheckCircleIcon className="h-6 w-6 text-green-500" />} />
-        <StatCard title="Missed Calls" value={String(missedCalls.length)} icon={<XCircleIcon className="h-6 w-6 text-red-500" />} />
+        <StatCard
+          title="Ongoing Calls"
+          value={String(activeCalls.length)}
+          icon={<PhoneIncomingIcon className="h-6 w-6" />}
+          iconBg="bg-blue-100 text-blue-600"
+        />
+        <StatCard
+          title="Missed Calls"
+          value={String(missedCalls.length)}
+          icon={<PhoneMissedCallIcon className="h-6 w-6" />}
+          iconBg="bg-rose-100 text-rose-600"
+        />
+        <StatCard
+          title="Answered Calls"
+          value={String(answeredCalls.length)}
+          icon={<PhoneOutgoingIcon className="h-6 w-6" />}
+          iconBg="bg-emerald-100 text-emerald-600"
+        />
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow">
@@ -232,7 +310,7 @@ export default function EmergencyCalls() {
                 <button className={getButtonClasses("Answered Calls")} onClick={() => handleFilterClick("Answered Calls")}>Answered Calls</button>
             </div>
           <div className="flex items-center space-x-2">
-            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            <button onClick={handleExportCalls} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
                 <DownloadIcon className="h-4 w-4"/>
                 Export
             </button>

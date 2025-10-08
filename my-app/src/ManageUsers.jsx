@@ -63,7 +63,7 @@ export default function ManageUsers() {
   const [responders, setResponders] = useState([]);
   const [responderStationData, setResponderStationData] = useState({});
   const [addResponderStation, setAddResponderStation] = useState(null);
-  const [addResponderForm, setAddResponderForm] = useState({ username: '', status: 'Available', password: '', fullName: '', contactNumber: '', });
+  const [addResponderForm, setAddResponderForm] = useState({ username: '', status: 'Active', password: '', fullName: '', contactNumber: '', });
   const [addResponderLoading, setAddResponderLoading] = useState(false);
   const [addResponderError, setAddResponderError] = useState(null);
   const [showAddResponderPassword, setShowAddResponderPassword] = useState(false);
@@ -807,14 +807,14 @@ export default function ManageUsers() {
   // Open add responder modal
   const openAddResponder = (station) => {
     setAddResponderStation(station);
-    setAddResponderForm({ username: '', status: 'Available', password: '', fullName: '', contactNumber: '', });
+    setAddResponderForm({ username: '', status: 'Active', password: '', fullName: '', contactNumber: '', });
     setAddResponderError(null);
   };
 
   // Close add responder modal
   const closeAddResponder = () => {
     setAddResponderStation(null);
-    setAddResponderForm({ username: '', status: 'Available', password: '', fullName: '', contactNumber: '', });
+    setAddResponderForm({ username: '', status: 'Active', password: '', fullName: '', contactNumber: '', });
     setAddResponderError(null);
   };
 
@@ -915,6 +915,17 @@ export default function ManageUsers() {
               />
             </div>
           )}
+          {activeTab === "Responders" && (
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                className="rounded border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
+                placeholder="Search here..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+          )}
         </div>
         {/* Citizens Table */}
         {activeTab === "Citizens" && (
@@ -944,13 +955,13 @@ export default function ManageUsers() {
                   </tr>
                 </thead>
                 <tbody>
-                  {citizens.length === 0 ? (
+                  {filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
                         No citizens found.
                       </td>
                     </tr>
-                  ) : citizens.map((user, idx) => (
+                  ) : filteredUsers.map((user, idx) => (
                     <tr key={user.username || idx} className="border-b hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium">{user.username || user.name || user.firstName + ' ' + (user.middleInitial || '') + ' ' + (user.surname || '')}</td>
                       <td className="px-4 py-2">{user.contactNumber}</td>
@@ -991,6 +1002,16 @@ export default function ManageUsers() {
                   .map(([key, value]) => value);
                 // Compose address string
                 const addressString = [streetAddress, city, region].filter(Boolean).join(', ');
+                // Apply search filtering
+                const q = (search || '').toLowerCase().trim();
+                const stationMatches = station.toLowerCase().includes(q);
+                const filteredOfficers = q
+                  ? officers.filter(o => (
+                      (o.username || '').toLowerCase().includes(q) ||
+                      (o.status || '').toLowerCase().includes(q)
+                    ))
+                  : officers;
+                if (q && !stationMatches && filteredOfficers.length === 0) return null;
                 return (
                   <div key={station} className="bg-gray-50 rounded-xl shadow p-4 mb-4">
                     <div className="flex items-center justify-between mb-2">
@@ -1014,12 +1035,12 @@ export default function ManageUsers() {
                           </tr>
                         </thead>
                         <tbody>
-                          {officers.length === 0 ? (
+                          {filteredOfficers.length === 0 ? (
                             <tr>
-                              <td colSpan={3} className="px-4 py-6 text-center text-gray-400">No officers found.</td>
+                              <td colSpan={3} className="px-4 py-6 text-center text-gray-400">{q ? 'No matching officers.' : 'No officers found.'}</td>
                             </tr>
                           ) : (
-                            officers.map((officer, oIdx) => (
+                            filteredOfficers.map((officer, oIdx) => (
                               <tr key={officer.username || oIdx} className="border-b hover:bg-gray-50">
                                 <td className="px-4 py-2">{officer.username}</td>
                                 <td className="px-4 py-2">
@@ -1071,6 +1092,18 @@ export default function ManageUsers() {
                   .filter(([key, value]) => value && typeof value === 'object' && value.username)
                   .map(([key, value]) => value);
                 const addressString = [streetAddress, city, region].filter(Boolean).join(', ');
+                // Apply search filtering
+                const q = (search || '').toLowerCase().trim();
+                const stationMatches = station.toLowerCase().includes(q);
+                const filteredMembers = q
+                  ? members.filter(m => (
+                      (m.username || '').toLowerCase().includes(q) ||
+                      (m.fullName || '').toLowerCase().includes(q) ||
+                      (m.contactNumber || '').toLowerCase().includes(q) ||
+                      (m.status || '').toLowerCase().includes(q)
+                    ))
+                  : members;
+                if (q && !stationMatches && filteredMembers.length === 0) return null;
                 return (
                   <div key={station} className="bg-gray-50 rounded-xl shadow p-4 mb-4">
                     <div className="flex items-center justify-between mb-2">
@@ -1101,22 +1134,22 @@ export default function ManageUsers() {
                           </tr>
                         </thead>
                         <tbody>
-                          {members.length === 0 ? (
+                          {filteredMembers.length === 0 ? (
                             <tr>
-                              <td colSpan={4} className="px-4 py-6 text-center text-gray-400">No responders found.</td>
+                              <td colSpan={4} className="px-4 py-6 text-center text-gray-400">{q ? 'No matching responders.' : 'No responders found.'}</td>
                             </tr>
                           ) : (
-                            members.map((member, mIdx) => (
+                            filteredMembers.map((member, mIdx) => (
                               <tr key={member.username || mIdx} className="border-b hover:bg-gray-50">
                                 <td className="px-4 py-2 truncate">{member.fullName}</td>
                                 <td className="px-4 py-2 whitespace-nowrap">{member.contactNumber}</td>
                                 <td className="px-4 py-2 whitespace-nowrap">
                                   <span className={
-                                    member.status === 'Unavailable'
+                                    member.status === 'Inactive'
                                       ? 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600'
                                       : 'inline-block px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-600'
                                   }>
-                                    {member.status || 'Available'}
+                                    {member.status || 'Active'}
                                   </span>
                                 </td>
                                 <td className="px-4 py-2 whitespace-nowrap">
@@ -1650,8 +1683,8 @@ export default function ManageUsers() {
               <div>
                 <label className="block text-xs font-medium mb-1">Status</label>
                 <select name="status" className="w-full border rounded px-3 py-2 text-sm" value={addResponderForm.status} onChange={handleAddResponderChange}>
-                  <option value="Available">Available</option>
-                  <option value="Unavailable">Unavailable</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
                 </select>
               </div>
               {addResponderError && (
@@ -1696,9 +1729,9 @@ export default function ManageUsers() {
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">Status</label>
-                <select name="status" className="w-full border rounded px-3 py-2 text-sm" value={editResponderForm.status || 'Available'} onChange={handleEditResponderChange}>
-                  <option value="Available">Available</option>
-                  <option value="Unavailable">Unavailable</option>
+                <select name="status" className="w-full border rounded px-3 py-2 text-sm" value={editResponderForm.status || 'Active'} onChange={handleEditResponderChange}>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
                 </select>
               </div>
               {editResponderError && (

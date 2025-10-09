@@ -996,7 +996,7 @@ class LoginPageDetails extends State<LoginPage> {
                               context: context,
                               builder: (context) => AlertDialog(
                                 title: Text("Login Failed"),
-                                content: Text("Account not found in AuthAccounts. Please register or try again."),
+                                content: Text("Account not found. Please register or try again."),
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.pop(context),

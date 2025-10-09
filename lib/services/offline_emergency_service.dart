@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, SocketException;
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -11,7 +11,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/station.dart';
+import 'package:http/http.dart' as http;
 
 class OfflineEmergencyService {
   static final OfflineEmergencyService _instance = OfflineEmergencyService._internal();
@@ -26,18 +26,138 @@ class OfflineEmergencyService {
   // Native Android SMS channel for multi-SIM support
   static const MethodChannel _smsChannel = MethodChannel('emergency_sms');
 
-  /// Check if device has internet connectivity
-  Future<bool> hasInternetConnection() async {
+  /// Check if device has actual internet connectivity with quality assessment
+  Future<Map<String, dynamic>> checkInternetConnectivityWithQuality() async {
+    Map<String, dynamic> result = {
+      'hasInternet': false,
+      'quality': 'none', // none, poor, fair, good
+      'responseTime': 0,
+      'method': '',
+    };
+
     try {
       // TESTING: Force offline mode for testing
-      // return false; // Uncomment this line to force offline mode
+      // return {'hasInternet': false, 'quality': 'none', 'responseTime': 0, 'method': 'forced_offline'};
       
+      debugPrint('🔍 Checking internet connectivity with quality assessment...');
+      
+      // Step 1: Check if device has WiFi/cellular connectivity
       final connectivityResult = await Connectivity().checkConnectivity();
-      return connectivityResult != ConnectivityResult.none;
+      if (connectivityResult == ConnectivityResult.none) {
+        debugPrint('❌ No WiFi/cellular connectivity detected');
+        return result;
+      }
+      
+      debugPrint('✅ Device has ${connectivityResult.name} connectivity, testing internet quality...');
+
+      // Test connection quality with different timeouts
+      final stopwatch = Stopwatch()..start();
+      
+      // Quick test first (3 seconds)
+      final quickTest = await _testHttpConnectivity('https://www.google.com', 3);
+      if (quickTest['success']) {
+        stopwatch.stop();
+        final responseTime = stopwatch.elapsedMilliseconds;
+        result['hasInternet'] = true;
+        result['responseTime'] = responseTime;
+        result['method'] = 'quick_http';
+        
+        // Assess quality based on response time
+        if (responseTime < 1000) {
+          result['quality'] = 'good';
+        } else if (responseTime < 3000) {
+          result['quality'] = 'fair';
+        } else {
+          result['quality'] = 'poor';
+        }
+        
+        debugPrint('✅ Quick connectivity test passed - Quality: ${result['quality']}, Time: ${responseTime}ms');
+        return result;
+      }
+      
+      // If quick test fails, try slower test (8 seconds for slow connections)
+      debugPrint('⚠️ Quick test failed, trying extended test for slow connections...');
+      stopwatch.reset();
+      stopwatch.start();
+      
+      final slowTest = await _testHttpConnectivity('http://httpbin.org/status/200', 8);
+      if (slowTest['success']) {
+        stopwatch.stop();
+        final responseTime = stopwatch.elapsedMilliseconds;
+        result['hasInternet'] = true;
+        result['responseTime'] = responseTime;
+        result['method'] = 'slow_http';
+        result['quality'] = 'poor'; // If it took this long, it's poor quality
+        
+        debugPrint('✅ Slow connectivity test passed - Quality: poor, Time: ${responseTime}ms');
+        return result;
+      }
+      
+      // Final fallback - Firebase test
+      debugPrint('⚠️ HTTP tests failed, trying Firebase as final check...');
+      stopwatch.reset();
+      stopwatch.start();
+      
+      try {
+        final db = FirebaseDatabase.instance.ref();
+        await db.child('.info/connected').get().timeout(Duration(seconds: 5));
+        stopwatch.stop();
+        
+        result['hasInternet'] = true;
+        result['responseTime'] = stopwatch.elapsedMilliseconds;
+        result['method'] = 'firebase';
+        result['quality'] = 'poor'; // Firebase worked but HTTP didn't - likely poor connection
+        
+        debugPrint('✅ Firebase connectivity confirmed - Quality: poor');
+        return result;
+      } catch (e) {
+        debugPrint('⚠️ Firebase connectivity check failed: $e');
+      }
+      
+      debugPrint('❌ All connectivity tests failed - device is offline');
+      return result;
+      
     } catch (e) {
-      debugPrint('Error checking connectivity: $e');
-      return false;
+      debugPrint('❌ Error checking internet connectivity: $e');
+      return result;
     }
+  }
+
+  /// Helper method to test HTTP connectivity with specific timeout
+  Future<Map<String, dynamic>> _testHttpConnectivity(String url, int timeoutSeconds) async {
+    try {
+      debugPrint('🌐 Testing HTTP connectivity to $url (timeout: ${timeoutSeconds}s)...');
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'User-Agent': 'Emergency-App-Connectivity-Check',
+          'Cache-Control': 'no-cache',
+        },
+      ).timeout(Duration(seconds: timeoutSeconds));
+      
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        debugPrint('✅ HTTP test successful for $url');
+        return {'success': true, 'statusCode': response.statusCode};
+      } else {
+        debugPrint('⚠️ HTTP test failed for $url - Status: ${response.statusCode}, Body empty: ${response.body.isEmpty}');
+        return {'success': false, 'error': 'Invalid response'};
+      }
+    } on SocketException catch (e) {
+      debugPrint('⚠️ HTTP test failed for $url - No connection: $e');
+      return {'success': false, 'error': 'No connection'};
+    } on TimeoutException catch (e) {
+      debugPrint('⚠️ HTTP test failed for $url - Timeout: $e');
+      return {'success': false, 'error': 'Timeout'};
+    } catch (e) {
+      debugPrint('⚠️ HTTP test failed for $url - Error: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Legacy method for backward compatibility
+  Future<bool> hasInternetConnection() async {
+    final result = await checkInternetConnectivityWithQuality();
+    return result['hasInternet'] as bool;
   }
 
   /// Get current GPS coordinates (works offline) - Enhanced with better timeout handling

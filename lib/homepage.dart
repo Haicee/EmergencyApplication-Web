@@ -16,6 +16,8 @@ import 'services/offline_map_service.dart'; // Import the offline map service
 import 'package:permission_handler/permission_handler.dart'; // Import permission handler
 import 'package:connectivity_plus/connectivity_plus.dart'; // Import connectivity
 import 'services/sync_service.dart'; // Import the new SyncService
+import 'package:fluttertoast/fluttertoast.dart'; // Import fluttertoast
+import 'package:url_launcher/url_launcher.dart'; // Import url_launcher for phone dialer
 
 class ResponsiveHomePage extends StatelessWidget {
   final String username;
@@ -129,6 +131,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   double _downloadProgress = 0.0;
   bool _isDownloadingMap = false;
   StreamSubscription? _mapDownloadSubscription;
+  Timer? _toastUpdateTimer;
+  double _lastToastProgress = -1.0;
+  
+  // Connectivity status
+  bool _isOnline = true;
+  StreamSubscription? _connectivitySubscription;
+  bool _showConnectivityBanner = false;
+  Timer? _connectivityBannerTimer;
 
   @override
   void initState() {
@@ -151,6 +161,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     // Listen for map download progress updates for the UI
     _listenForMapDownloadProgress();
+    
+    // Check initial connectivity status
+    _checkConnectivity();
+    
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
+      _updateConnectivityStatus(result);
+    });
   }
 
   Future<void> _checkProfileCompletion() async {
@@ -296,6 +314,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _mapDownloadSubscription?.cancel();
     _offlineMapService.dispose();
     _syncService.dispose(); // Dispose the sync service
+    _connectivitySubscription?.cancel();
+    _connectivityBannerTimer?.cancel();
+    _toastUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -348,6 +369,123 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         setState(() {
           _isLoadingStations = false;
         });
+      }
+    }
+  }
+
+  /// Check current connectivity status with actual internet verification
+  Future<void> _checkConnectivity() async {
+    try {
+      debugPrint('🔍 Checking actual internet connectivity...');
+      
+      // Use the proper internet connectivity check from OfflineEmergencyService
+      final bool hasInternet = await _offlineEmergencyService.hasInternetConnection();
+      
+      debugPrint('🌐 Internet connectivity result: ${hasInternet ? 'ONLINE' : 'OFFLINE'}');
+      
+      // Update the UI with the actual internet connectivity status
+      if (mounted && _isOnline != hasInternet) {
+        setState(() {
+          _isOnline = hasInternet;
+          _showConnectivityBanner = true;
+        });
+        
+        // Cancel existing timer if any
+        _connectivityBannerTimer?.cancel();
+        
+        // Hide banner after 5 seconds
+        _connectivityBannerTimer = Timer(Duration(seconds: 5), () {
+          if (mounted) {
+            setState(() {
+              _showConnectivityBanner = false;
+            });
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error checking internet connectivity: $e');
+      // Default to offline if connectivity check fails
+      if (mounted && _isOnline != false) {
+        setState(() {
+          _isOnline = false;
+          _showConnectivityBanner = true;
+        });
+      }
+    }
+  }
+
+  /// Update connectivity status with actual internet verification
+  void _updateConnectivityStatus(ConnectivityResult result) {
+    debugPrint('📡 Connectivity change detected: ${result.name}');
+    
+    // If there's no basic connectivity, immediately set to offline
+    if (result == ConnectivityResult.none) {
+      debugPrint('❌ No WiFi/cellular connectivity detected');
+      if (mounted && _isOnline != false) {
+        setState(() {
+          _isOnline = false;
+          _showConnectivityBanner = true;
+        });
+        
+        _connectivityBannerTimer?.cancel();
+        _connectivityBannerTimer = Timer(Duration(seconds: 5), () {
+          if (mounted) {
+            setState(() {
+              _showConnectivityBanner = false;
+            });
+          }
+        });
+      }
+      return;
+    }
+    
+    // If there is basic connectivity, verify actual internet access
+    debugPrint('✅ Basic connectivity detected, verifying internet access...');
+    _checkConnectivity(); // This will do the proper internet connectivity check
+  }
+
+  /// Handle pull-to-refresh with proper internet connectivity check
+  Future<void> _handleRefresh() async {
+    debugPrint('🔄 Pull-to-refresh triggered');
+    
+    try {
+      // Check actual internet connectivity (this will update the banner automatically)
+      await _checkConnectivity();
+      
+      // Reload stations data if we have internet
+      if (_isOnline) {
+        setState(() {
+          _isLoadingStations = true;
+        });
+        await _loadStations();
+      } else {
+        debugPrint('📱 Offline mode - skipping station reload from Firebase');
+      }
+      
+      // Refresh location (works offline)
+      await _determinePosition();
+      
+      // Show refresh completion message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isOnline ? 'Refreshed successfully' : 'Refreshed in offline mode'),
+            backgroundColor: _isOnline ? Colors.green : Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error during refresh: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to refresh: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
@@ -726,9 +864,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       try {
         debugPrint("🔍 Starting dual-mode emergency system...");
         
-        // Step 1: Check connectivity first
-        bool hasInternet = await _offlineEmergencyService.hasInternetConnection();
+        // Step 1: Check connectivity and quality first
+        final connectivityResult = await _offlineEmergencyService.checkInternetConnectivityWithQuality();
+        bool hasInternet = connectivityResult['hasInternet'] as bool;
+        String quality = connectivityResult['quality'] as String;
+        int responseTime = connectivityResult['responseTime'] as int;
+        
         debugPrint("🌐 Internet connectivity: ${hasInternet ? 'ONLINE' : 'OFFLINE'}");
+        if (hasInternet) {
+          debugPrint("📊 Connection quality: $quality (${responseTime}ms)");
+        }
         
         // Get user's current location for geofence detection
         Position position = await Geolocator.getCurrentPosition();
@@ -758,10 +903,33 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           targetStation = await _findNearestStation(position, _stations);
         }
 
-        // Step 2: Route based on connectivity
+        // Step 2: Route based on connectivity and quality
         if (hasInternet) {
-          debugPrint("🟢 ONLINE MODE: Initiating Agora voice call...");
-          await _handleOnlineEmergency(position, targetStation);
+          // Handle different connection qualities
+          if (quality == 'poor') {
+            debugPrint("🟡 POOR CONNECTION: Using hybrid approach (SMS + Online attempt)...");
+            
+            // Show user warning about poor connection
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Poor internet detected. Sending SMS backup while attempting call...'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
+            
+            // Send SMS first as backup for poor connections
+            await _handleOfflineEmergency(position, targetStation);
+            
+            // Then attempt online call with extended timeouts
+            await _handleOnlineEmergencyWithPoorConnection(position, targetStation, responseTime);
+            
+          } else {
+            debugPrint("🟢 ${quality.toUpperCase()} CONNECTION: Initiating Agora voice call...");
+            await _handleOnlineEmergency(position, targetStation);
+          }
         } else {
           debugPrint("🔴 OFFLINE MODE: Sending SMS alert...");
           await _handleOfflineEmergency(position, targetStation);
@@ -836,25 +1004,49 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         'citizenLongitude': position.longitude.toString(),
       };
 
-      // Store call data in Firebase for online calls
+      // Store call data in Firebase for online calls with graceful error handling
+      bool firebaseWriteSuccess = false;
       if (stationName != null) {
-        debugPrint('💾 Storing call data in Firebase for station: $stationName');
+        debugPrint('💾 Attempting to store call data in Firebase for station: $stationName');
         
-        // Create StationsCallLogs with citizen location
-        await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
-        await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
+        try {
+          // Create StationsCallLogs with citizen location
+          await db.child('StationsCallLogs/ActiveCalls/$callId').set(callData);
+          await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId').set(callData);
 
-        // Create UsersCallLogs with officer location
-        final stationSnapshot = await db.child('Desk Officer/$stationName').get();
-        if (stationSnapshot.exists) {
-          final stationData = Map<String, dynamic>.from(stationSnapshot.value as Map);
-          final callDataWithOfficerLocation = Map<String, dynamic>.from(callData);
-          callDataWithOfficerLocation['officerLatitude'] = stationData['latitude']?.toString() ?? '0.0';
-          callDataWithOfficerLocation['officerLongitude'] = stationData['longitude']?.toString() ?? '0.0';
-          callDataWithOfficerLocation['officerRadius'] = stationData['radius']?.toString() ?? '500.0';
+          // Create UsersCallLogs with officer location
+          final stationSnapshot = await db.child('Desk Officer/$stationName').get();
+          if (stationSnapshot.exists) {
+            final stationData = Map<String, dynamic>.from(stationSnapshot.value as Map);
+            final callDataWithOfficerLocation = Map<String, dynamic>.from(callData);
+            callDataWithOfficerLocation['officerLatitude'] = stationData['latitude']?.toString() ?? '0.0';
+            callDataWithOfficerLocation['officerLongitude'] = stationData['longitude']?.toString() ?? '0.0';
+            callDataWithOfficerLocation['officerRadius'] = stationData['radius']?.toString() ?? '500.0';
+            
+            await db.child('UsersCallLogs/ActiveCalls/$callId').set(callDataWithOfficerLocation);
+            debugPrint('✅ Call data stored successfully in Firebase');
+            firebaseWriteSuccess = true;
+          }
+        } catch (firebaseError) {
+          debugPrint('⚠️ Firebase write failed: $firebaseError');
           
-          await db.child('UsersCallLogs/ActiveCalls/$callId').set(callDataWithOfficerLocation);
-          debugPrint('✅ Call data stored successfully in Firebase');
+          // Check if it's a permission error
+          if (firebaseError.toString().contains('Permission denied') || 
+              firebaseError.toString().contains('permission-denied')) {
+            debugPrint('🚫 Firebase Database permission denied - continuing with call but will send backup SMS');
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Call logging limited due to permissions, but emergency call will proceed'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
+          } else {
+            debugPrint('❌ Other Firebase error: $firebaseError');
+          }
         }
       } else {
         debugPrint('⚠️ No specific station targeted - call data not stored in Firebase');
@@ -875,13 +1067,166 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         );
       }
       
+      // Send backup SMS if Firebase write failed
+      if (!firebaseWriteSuccess && stationName != null) {
+        debugPrint('📱 Sending backup SMS due to Firebase write failure...');
+        try {
+          final smsResult = await _offlineEmergencyService.handleOfflineEmergency(
+            userName: widget.username,
+            additionalInfo: "Emergency call initiated - Firebase logging failed",
+            userPosition: position,
+          );
+          
+          if (smsResult['success']) {
+            debugPrint('✅ Backup SMS sent successfully');
+          } else {
+            debugPrint('❌ Backup SMS also failed: ${smsResult['message']}');
+          }
+        } catch (smsError) {
+          debugPrint('❌ Backup SMS error: $smsError');
+        }
+      }
+      
     } catch (e) {
-      debugPrint('❌ Online emergency failed: $e');
+      debugPrint('❌ Online emergency completely failed: $e');
+      
+      // Graceful degradation: Fall back to offline SMS mode
+      debugPrint('🔄 Attempting automatic fallback to offline SMS mode...');
+      try {
+        await _handleOfflineEmergency(position, targetStation);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Online call failed, automatically switched to SMS emergency mode'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      } catch (fallbackError) {
+        debugPrint('❌ Even offline fallback failed: $fallbackError');
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Emergency system error. Please call emergency services directly: ${targetStation?.hotline ?? "911"}'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 8),
+              action: SnackBarAction(
+                label: 'Call',
+                textColor: Colors.white,
+                onPressed: () {
+                  // Launch phone dialer with emergency number
+                  final phoneNumber = targetStation?.hotline ?? "911";
+                  final uri = Uri.parse('tel:$phoneNumber');
+                  launchUrl(uri);
+                },
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// Handle online emergency with poor connection (extended timeouts and simplified approach)
+  Future<void> _handleOnlineEmergencyWithPoorConnection(Position position, Station? targetStation, int responseTime) async {
+    try {
+      debugPrint("📞 Starting online emergency call process for poor connection...");
+      debugPrint("⏱️ Detected response time: ${responseTime}ms - using extended timeouts");
+      
+      // Calculate adaptive timeout based on response time
+      int adaptiveTimeout = (responseTime * 2).clamp(5000, 15000); // 2x response time, max 15s
+      debugPrint("🕐 Using adaptive timeout: ${adaptiveTimeout}ms");
+      
+      // Get user data from Firebase with extended timeout
+      final db = FirebaseDatabase.instance.ref();
+      final userSnapshot = await db.child('users/${widget.username}')
+          .get()
+          .timeout(Duration(milliseconds: adaptiveTimeout));
+
+      if (!userSnapshot.exists) {
+        debugPrint("❌ User information not found in database");
+        throw Exception('User information not found');
+      }
+
+      final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
+      final callId = DateTime.now().millisecondsSinceEpoch.toString();
+      final String? stationName = targetStation?.name;
+
+      debugPrint("📋 Creating call data for station: ${stationName ?? 'No specific station'}");
+
+      // Prepare simplified call data for poor connections
+      final callData = {
+        'caller': widget.username,
+        'status': 'ringing',
+        'timestamp': ServerValue.timestamp,
+        'station': stationName,
+        'mobile': userData['contactNumber'] ?? 'Not specified',
+        'firstName': userData['firstName'] ?? '',
+        'surname': userData['surname'] ?? '',
+        'citizenLatitude': position.latitude.toString(),
+        'citizenLongitude': position.longitude.toString(),
+        'connectionQuality': 'poor', // Mark as poor connection call
+      };
+
+      // Try Firebase write with extended timeout and graceful failure
+      if (stationName != null) {
+        debugPrint('💾 Attempting Firebase write with extended timeout...');
+        
+        try {
+          // Use shorter timeout for Firebase writes on poor connections
+          await db.child('StationsCallLogs/ActiveCalls/$callId')
+              .set(callData)
+              .timeout(Duration(milliseconds: adaptiveTimeout ~/ 2));
+          await db.child('Desk Officer/$stationName/ReceivedCalls/ActiveCalls/$callId')
+              .set(callData)
+              .timeout(Duration(milliseconds: adaptiveTimeout ~/ 2));
+          
+          debugPrint('✅ Firebase write successful despite poor connection');
+        } catch (firebaseError) {
+          debugPrint('⚠️ Firebase write failed on poor connection: $firebaseError');
+          // Continue anyway - SMS backup was already sent
+        }
+      }
+      
+      // Navigate to connecting page with poor connection warning
+      debugPrint('🚀 Launching Agora call interface with poor connection handling...');
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConnectingPage(
+              username: widget.username,
+              callId: callId,
+              station: stationName,
+            ),
+          ),
+        );
+        
+        // Show additional warning about call quality
+        Future.delayed(Duration(seconds: 2), () {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Call quality may be affected by poor connection. SMS backup was sent.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+        });
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Poor connection emergency call failed: $e');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Online emergency call failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text('Voice call failed due to poor connection, but SMS was sent successfully'),
+            backgroundColor: Colors.orange,
             duration: Duration(seconds: 5),
           ),
         );
@@ -981,22 +1326,26 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _holdTimer?.cancel();
   }
 
-  /// Sets up a listener for the map download progress stream to update the UI.
-  void _listenForMapDownloadProgress() async {
-    // Only start the download if we have an internet connection
-    final connectivityResult = await Connectivity().checkConnectivity();
-    if (connectivityResult == ConnectivityResult.none) {
-      debugPrint('No internet connection. Skipping offline map download.');
-      return;
-    }
-
+  /// Listen for map download progress updates for the UI
+  void _listenForMapDownloadProgress() {
     _mapDownloadSubscription = _offlineMapService.downloadProgressStream.listen(
       (progress) {
         if (mounted) {
           setState(() {
-            _isDownloadingMap = true;
             _downloadProgress = progress;
+            _isDownloadingMap = progress < 100;
           });
+          
+          // Show toast when download starts
+          if (progress > 0 && progress < 100 && _lastToastProgress < 0) {
+            _startToastUpdates();
+          }
+          
+          // Update toast periodically (every 10% change)
+          if ((progress - _lastToastProgress).abs() >= 10 || progress >= 100) {
+            _showDownloadToast(progress);
+            _lastToastProgress = progress;
+          }
         }
       },
       onDone: () {
@@ -1005,6 +1354,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             _isDownloadingMap = false;
             _downloadProgress = 100.0;
           });
+          _stopToastUpdates();
+          _showDownloadCompleteToast();
         }
       },
       onError: (error) {
@@ -1012,32 +1363,62 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           setState(() {
             _isDownloadingMap = false;
           });
+          _stopToastUpdates();
         }
         debugPrint('Error during map download: $error');
+        Fluttertoast.showToast(
+          msg: "Download failed: $error",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+          fontSize: 16.0,
+        );
       },
     );
   }
 
-  Widget _buildDownloadProgressIndicator() {
-    if (!_isDownloadingMap || _downloadProgress >= 100) {
-      return SizedBox.shrink();
-    }
+  /// Start periodic toast updates during download
+  void _startToastUpdates() {
+    _toastUpdateTimer?.cancel();
+    _toastUpdateTimer = Timer.periodic(Duration(seconds: 3), (timer) {
+      if (_isDownloadingMap && _downloadProgress < 100) {
+        _showDownloadToast(_downloadProgress);
+      } else {
+        timer.cancel();
+      }
+    });
+  }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: const Color.fromARGB(255, 255, 255, 255),
-      child: Row(
-        children: [
-          CircularProgressIndicator(value: _downloadProgress / 100, backgroundColor: const Color.fromARGB(255, 81, 255, 37)),
-          SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              'Downloading data... ${_downloadProgress.toStringAsFixed(0)}%',
-              style: TextStyle(color: const Color.fromARGB(255, 81, 255, 37), fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
+  /// Stop toast updates
+  void _stopToastUpdates() {
+    _toastUpdateTimer?.cancel();
+    _lastToastProgress = -1.0;
+  }
+
+  /// Show download progress toast
+  void _showDownloadToast(double progress) {
+    Fluttertoast.showToast(
+      msg: "📥 Downloading data... ${progress.toStringAsFixed(0)}%",
+      toastLength: Toast.LENGTH_SHORT,
+      gravity: ToastGravity.BOTTOM,
+      timeInSecForIosWeb: 1,
+      backgroundColor: Color.fromARGB(255, 255, 60, 57),
+      textColor: Color.fromARGB(255, 81, 255, 37),
+      fontSize: 16.0,
+    );
+  }
+
+  /// Show download complete toast
+  void _showDownloadCompleteToast() {
+    Fluttertoast.showToast(
+      msg: "✅ Download complete!",
+      toastLength: Toast.LENGTH_SHORT,
+      gravity: ToastGravity.BOTTOM,
+      timeInSecForIosWeb: 1,
+      backgroundColor: Color.fromARGB(255, 76, 175, 80),
+      textColor: Colors.white,
+      fontSize: 16.0,
     );
   }
 
@@ -1182,29 +1563,62 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       ),
       body: Column(
         children: [
-          _buildDownloadProgressIndicator(),
-          Expanded(
-            child: Container(
+          // Connectivity status indicator (shows for 5 seconds)
+          if (_showConnectivityBanner)
+            AnimatedContainer(
+              duration: Duration(milliseconds: 300),
               width: double.infinity,
-              height: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color.fromARGB(255, 255, 51, 48), // Light reddish pink
-                    Color.fromARGB(255, 255, 218, 217),
-                    Color.fromARGB(255, 255, 255, 255), // Existing light color
-                  ],
-                ),
+              padding: EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+              color: _isOnline 
+                ? Color.fromARGB(255, 76, 175, 80)
+                : Color.fromARGB(255, 255, 152, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isOnline ? Icons.wifi : Icons.wifi_off,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    _isOnline ? 'ONLINE' : 'OFFLINE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
               ),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 25.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
+            ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _handleRefresh,
+              color: Color.fromARGB(255, 255, 62, 59),
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color.fromARGB(255, 255, 51, 48), // Light reddish pink
+                      Color.fromARGB(255, 255, 218, 217),
+                      Color.fromARGB(255, 255, 255, 255), // Existing light color
+                    ],
+                  ),
+                ),
+                child: SafeArea(
+                  child: SingleChildScrollView(
+                    physics: AlwaysScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 25.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
 
                       Text
                       (
@@ -1398,16 +1812,18 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ],
                       ),
 
-                      // Empty container at the bottom to help with centering the middle content
-                      Container(height: 1),
-                    ],
+                        // Empty container at the bottom to help with centering the middle content
+                        Container(height: 1),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
+    ),
     );
   }
 }

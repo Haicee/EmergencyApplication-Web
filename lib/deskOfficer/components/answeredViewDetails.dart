@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import '../callBack.dart';
@@ -177,6 +178,7 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
                               children: [
                                 _chip(label: widget.gender.isNotEmpty ? widget.gender : 'Unknown', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.person),
                                 _chip(label: widget.mobile.isNotEmpty ? widget.mobile : 'Not Provided', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.phone),
+                                _chip(label: widget.birthDate.isNotEmpty ? widget.birthDate : 'Not provided', color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.cake),
                                 _chip(label: _cleanAddressDisplay(widget.address), color: Colors.white.withOpacity(0.2), textColor: Colors.white, icon: Icons.location_on, softWrap: true, overflow: TextOverflow.visible),
                               ],
                             ),
@@ -257,6 +259,49 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
                                 : _cleanAddressDisplay(widget.address);
                             return _addressCard(_cleanAddressDisplay(resolved));
                           },
+                        ),
+                        const SizedBox(height: 12),
+                        // Latitude & Longitude row with copy action
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.my_location, size: 16, color: Colors.black54),
+                                  const SizedBox(width: 8),
+                                  const Text('Latitude & Longitude', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w600, fontSize: 12)),
+                                  const Spacer(),
+                                  IconButton(
+                                    tooltip: 'Copy coordinates',
+                                    icon: const Icon(Icons.copy, size: 18),
+                                    onPressed: hasValidCoords
+                                        ? () async {
+                                            final text = '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}';
+                                            await Clipboard.setData(ClipboardData(text: text));
+                                            if (!mounted) return;
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Coordinates copied')),
+                                            );
+                                          }
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                hasValidCoords
+                                    ? '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}'
+                                    : 'Not provided',
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),

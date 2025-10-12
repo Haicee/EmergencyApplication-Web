@@ -336,19 +336,28 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             
             // Check if this is a station (has station info)
             if (stationData.containsKey('name') || stationId.startsWith('Police Station')) {
-              // Create a station with the data we
-              final station = Station(
-                id: stationId,
-                name: stationData['name'] ?? stationId, // Use ID as fallback for name
-                hotline: stationData['hotline'] ?? 'No hotline',
-                streetAddress: stationData['streetAddress'] ?? stationData['address'] ?? '',
-                city: stationData['city'] ?? '',
-                region: stationData['region'] ?? '',
-                latitude: double.tryParse(stationData['latitude']?.toString() ?? '0.0') ?? 0.0,
-                longitude: double.tryParse(stationData['longitude']?.toString() ?? '0.0') ?? 0.0,
-                radius: double.tryParse(stationData['radius']?.toString() ?? '500.0') ?? 500.0,
-              );
-              loadedStations.add(station);
+              // Parse and validate coordinates
+              final latitude = double.tryParse(stationData['latitude']?.toString() ?? '0.0') ?? 0.0;
+              final longitude = double.tryParse(stationData['longitude']?.toString() ?? '0.0') ?? 0.0;
+              
+              // Skip stations with invalid coordinates (0,0) or out of reasonable bounds
+              if (_isValidCoordinate(latitude, longitude)) {
+                final station = Station(
+                  id: stationId,
+                  name: stationData['name'] ?? stationId, // Use ID as fallback for name
+                  hotline: stationData['hotline'] ?? 'No hotline',
+                  streetAddress: stationData['streetAddress'] ?? stationData['address'] ?? '',
+                  city: stationData['city'] ?? '',
+                  region: stationData['region'] ?? '',
+                  latitude: latitude,
+                  longitude: longitude,
+                  radius: double.tryParse(stationData['radius']?.toString() ?? '500.0') ?? 500.0,
+                );
+                loadedStations.add(station);
+                debugPrint('✅ Loaded station: ${station.name} at (${station.latitude}, ${station.longitude})');
+              } else {
+                debugPrint('❌ Skipped station $stationId with invalid coordinates: ($latitude, $longitude)');
+              }
             }
           }
         });
@@ -356,15 +365,24 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         // Sort stations by their ID (Police Station 1, 2, 3, etc.)
         loadedStations.sort((a, b) => a.name.compareTo(b.name));
         
+        debugPrint('📍 Loaded ${loadedStations.length} valid stations with coordinates');
+        
         if (mounted) {
           setState(() {
             _stations = loadedStations;
             _isLoadingStations = false;
           });
         }
+      } else {
+        debugPrint('❌ No station data found in Firebase');
+        if (mounted) {
+          setState(() {
+            _isLoadingStations = false;
+          });
+        }
       }
     } catch (e) {
-      print('Error loading stations: $e');
+      debugPrint('❌ Error loading stations: $e');
       if (mounted) {
         setState(() {
           _isLoadingStations = false;
@@ -488,6 +506,17 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         );
       }
     }
+  }
+
+  /// Validate if coordinates are reasonable (not 0,0 and within world bounds)
+  bool _isValidCoordinate(double latitude, double longitude) {
+    // Check if coordinates are not (0,0) and within reasonable world bounds
+    return latitude != 0.0 && 
+           longitude != 0.0 && 
+           latitude >= -90.0 && 
+           latitude <= 90.0 && 
+           longitude >= -180.0 && 
+           longitude <= 180.0;
   }
 
   Future<void> _determinePosition() async {

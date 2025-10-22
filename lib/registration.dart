@@ -346,13 +346,12 @@ class RegistrationForm extends State<RegisterPage> {
             );
             print('Generated username: $username'); // Debug log
 
-            // Check if username already exists
+            // Check if username already exists (keyed by username -> O(1), no index needed)
             print('Checking if username exists...'); // Debug log
             final usernameSnapshot = await FirebaseDatabase.instance
                 .ref()
                 .child('users')
-                .orderByChild('username')
-                .equalTo(username)
+                .child(username)
                 .get();
 
             if (usernameSnapshot.exists) {
@@ -401,14 +400,35 @@ class RegistrationForm extends State<RegisterPage> {
             // Check if contact number already exists
             String fullContactNumber = '09${_contactController.text}';
             print('Checking if contact number exists: $fullContactNumber'); // Debug log
-            final contactSnapshot = await FirebaseDatabase.instance
-                .ref()
-                .child('users')
-                .orderByChild('contactNumber')
-                .equalTo(fullContactNumber)
-                .get();
+            bool contactExists = false;
+            try {
+              final contactSnapshot = await FirebaseDatabase.instance
+                  .ref()
+                  .child('users')
+                  .orderByChild('contactNumber')
+                  .equalTo(fullContactNumber)
+                  .get();
+              contactExists = contactSnapshot.exists;
+            } catch (e) {
+              // Fallback if index is not defined in rules: scan small dataset client-side
+              try {
+                final usersSnapshot = await FirebaseDatabase.instance
+                    .ref()
+                    .child('users')
+                    .get();
+                if (usersSnapshot.exists) {
+                  for (final child in usersSnapshot.children) {
+                    final val = child.value;
+                    if (val is Map && val['contactNumber'] == fullContactNumber) {
+                      contactExists = true;
+                      break;
+                    }
+                  }
+                }
+              } catch (_) {}
+            }
 
-            if (contactSnapshot.exists) {
+            if (contactExists) {
                 print('Contact number already exists'); // Debug log
                 showDialog(
                     context: context,

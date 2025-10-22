@@ -1,4 +1,4 @@
-package com.example.new_emergency
+package com.emergency.Resme
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

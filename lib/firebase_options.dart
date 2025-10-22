@@ -43,12 +43,12 @@ class DefaultFirebaseOptions {
   // Replace these values with your actual Firebase configuration
   // You can find these values in your google-services.json file
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDLeVHjD1kIfvXJW4R0TNQ0lKPE7R3Tiqg', // From google-services.json > client > api_key > current_key
-    appId: '1:969690894666:android:ce89c87e7e6de788f4b1b3', // From google-services.json > client > client_info > mobilesdk_app_id
-    messagingSenderId: '969690894666', // From google-services.json > project_info > project_number
-    projectId: 'emergency-73ada', // From google-services.json > project_info > project_id
-    databaseURL: 'https://emergency-73ada-default-rtdb.firebaseio.com/', // From Firebase Console > Realtime Database
-    storageBucket: 'emergency-73ada.firebasestorage.app', // From google-services.json > project_info > storage_bucket
+    apiKey: 'AIzaSyBj2sRvc6yMkFo1BjdUENAAO1YmOYR61AE', // google-services.json > client > api_key > current_key
+    appId: '1:984771585091:android:69f47d1fc2a527f40e20f6', // google-services.json > client > client_info > mobilesdk_app_id
+    messagingSenderId: '984771585091', // google-services.json > project_info > project_number
+    projectId: 'resmeapp-1', // google-services.json > project_info > project_id
+    databaseURL: 'https://resmeapp-1-default-rtdb.firebaseio.com', // Firebase Console > Realtime Database
+    storageBucket: 'resmeapp-1.firebasestorage.app', // google-services.json > project_info > storage_bucket
   );
 
   // These configurations are not needed for Android, but keeping them for future use

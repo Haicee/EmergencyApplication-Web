@@ -1,21 +1,22 @@
 {
   "project_info": {
-    "project_number": "969690894666",
-    "project_id": "emergency-73ada",
-    "storage_bucket": "emergency-73ada.firebasestorage.app"
+    "project_number": "984771585091",
+    "firebase_url": "https://resmeapp-1-default-rtdb.firebaseio.com",
+    "project_id": "resmeapp-1",
+    "storage_bucket": "resmeapp-1.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:969690894666:android:ce89c87e7e6de788f4b1b3",
+        "mobilesdk_app_id": "1:984771585091:android:1f0a3db77ba498730e20f6",
         "android_client_info": {
-          "package_name": "com.example.new_emergency"
+          "package_name": "com.emergency.Resme"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDLeVHjD1kIfvXJW4R0TNQ0lKPE7R3Tiqg"
+          "current_key": "AIzaSyBj2sRvc6yMkFo1BjdUENAAO1YmOYR61AE"
         }
       ],
       "services": {

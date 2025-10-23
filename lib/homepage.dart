@@ -111,7 +111,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
-  String _currentLocation = "Locationing...";
+  String _currentLocation = "Locating...";
   late AnimationController _controller;
   Timer? _holdTimer;
   // Incoming callback listening

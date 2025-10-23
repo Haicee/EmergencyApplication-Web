@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Handles push notifications for incoming calls, including full-screen alerts on Android.
 class CallNotificationService {
@@ -19,6 +20,7 @@ class CallNotificationService {
   static const String androidChannelDesc = 'High priority incoming emergency calls';
 
   bool _initialized = false;
+  String? _userType; // 'deskOfficer', 'responder', or null/other (citizen)
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -57,14 +59,38 @@ class CallNotificationService {
       );
     }
 
+    // Determine current user type for filtering notifications
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _userType = prefs.getString('userType');
+    } catch (_) {
+      _userType = null;
+    }
+
     // Foreground messages: show our own full-screen style notification
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (message.data['type'] == 'incoming_call') {
+      final type = message.data['type'];
+
+      // Citizens: only handle callbacks from station
+      final isCitizen = !(_userType == 'deskOfficer' || _userType == 'responder');
+      // Officers/Responders: only handle incoming emergencies from citizens
+      final isOfficer = _userType == 'deskOfficer' || _userType == 'responder';
+
+      if (type == 'incoming_call' && isCitizen) {
         _showIncomingCallNotification(
           title: message.notification?.title ?? 'Incoming Emergency Call',
           body: message.notification?.body ?? 'Tap to answer',
           payload: message.data,
         );
+      } else if (type == 'incoming_emergency' && isOfficer) {
+        _showIncomingCallNotification(
+          title: message.notification?.title ?? 'Incoming Emergency',
+          body: message.notification?.body ?? 'Citizen is requesting help',
+          payload: message.data,
+        );
+      } else {
+        // Filter out irrelevant notifications for this role
+        debugPrint('Filtered notification of type "$type" for userType=$_userType');
       }
     });
 
@@ -133,6 +159,25 @@ class CallNotificationService {
       });
     } catch (e) {
       debugPrint('Error saving FCM token: $e');
+    }
+  }
+
+  /// Save FCM token for a desk officer so the station can be notified
+  /// Path: Desk Officer/{stationName}/{officerUsername}/fcmToken
+  Future<void> saveOfficerFcmToken(String stationName, String officerUsername) async {
+    try {
+      final token = await _messaging.getToken();
+      if (token == null) return;
+      final ref = FirebaseDatabase.instance.ref('Desk Officer/$stationName/$officerUsername');
+      await ref.update({'fcmToken': token});
+      // Persist on refresh
+      _messaging.onTokenRefresh.listen((newToken) async {
+        try {
+          await ref.update({'fcmToken': newToken});
+        } catch (_) {}
+      });
+    } catch (e) {
+      debugPrint('Error saving officer FCM token: $e');
     }
   }
 }

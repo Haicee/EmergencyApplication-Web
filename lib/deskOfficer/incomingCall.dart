@@ -42,7 +42,9 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   String pwdCondition = '';
   String medicalCondition = '';
   bool isLoading = false; // Set to false since we have data from the call
-  late StreamSubscription _callStatusSubscription; // Listen for call status changes
+  late StreamSubscription _callStatusSubscription; // Listen for call status changes (global)
+  StreamSubscription? _stationCallStatusSubscription; // Backup listener on station path
+  bool _actionTaken = false; // Prevent listeners from popping UI after answer/decline
 
   @override
   void initState() {
@@ -76,7 +78,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
       if (event.snapshot.value == null) {
         // Call was moved to MissedCalls or removed
         debugPrint('Call ${widget.callId} was moved to MissedCalls or removed');
-        if (mounted && Navigator.canPop(context)) {
+        if (!_actionTaken && mounted && Navigator.canPop(context)) {
           // Stop ringtone on removal
           RingtoneService.stop();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -98,7 +100,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
       if (status == 'cancelled') {
         debugPrint('Call ${widget.callId} was cancelled by citizen');
         // Call was cancelled by citizen, close this page
-        if (mounted && Navigator.canPop(context)) {
+        if (!_actionTaken && mounted && Navigator.canPop(context)) {
           // Stop ringtone on cancel
           RingtoneService.stop();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -113,7 +115,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
       } else if (status == 'timeout') {
         debugPrint('Call ${widget.callId} timed out');
         // Call timed out, close this page
-        if (mounted && Navigator.canPop(context)) {
+        if (!_actionTaken && mounted && Navigator.canPop(context)) {
           // Stop ringtone on timeout
           RingtoneService.stop();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -125,6 +127,40 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
           );
           Navigator.pop(context);
         }
+      } else if (status == 'declined') {
+        debugPrint('Call ${widget.callId} was declined');
+        if (!_actionTaken && mounted && Navigator.canPop(context)) {
+          RingtoneService.stop();
+          Navigator.pop(context);
+        }
+      } else if (status == 'answered') {
+        // Safety: stop any residual ringtone if status flips to answered externally
+        RingtoneService.stop();
+      }
+    });
+
+    // Backup listener on station-specific path to catch transitions written there first
+    _stationCallStatusSubscription = db
+        .child('Desk Officer/${widget.station}/ReceivedCalls/ActiveCalls/${widget.callId}')
+        .onValue
+        .listen((event) {
+      if (event.snapshot.value == null) {
+        // Entry removed/moved -> ensure ringtone stops and close if still open
+        if (!_actionTaken && mounted && Navigator.canPop(context)) {
+          RingtoneService.stop();
+          Navigator.pop(context);
+        }
+        return;
+      }
+      final data = event.snapshot.value as Map;
+      final status = data['status'];
+      if (status == 'cancelled' || status == 'timeout' || status == 'declined') {
+        if (!_actionTaken && mounted && Navigator.canPop(context)) {
+          RingtoneService.stop();
+          Navigator.pop(context);
+        }
+      } else if (status == 'answered') {
+        RingtoneService.stop();
       }
     });
   }
@@ -132,6 +168,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   @override
   void dispose() {
     _callStatusSubscription.cancel(); // Clean up the listener
+    _stationCallStatusSubscription?.cancel();
     // Ensure ringtone stops when leaving this page
     RingtoneService.stop();
     super.dispose();
@@ -269,7 +306,9 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                           child: GestureDetector(
                             onTap: () async {
                               // Cancel the call status listener to prevent wrong notifications
+                              _actionTaken = true;
                               _callStatusSubscription.cancel();
+                              _stationCallStatusSubscription?.cancel();
                               // Stop incoming ringtone on answer
                               await RingtoneService.stop();
                               
@@ -386,7 +425,9 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                           child: GestureDetector(
                             onTap: () async {
                               // Cancel the call status listener to prevent wrong notifications
+                              _actionTaken = true;
                               _callStatusSubscription.cancel();
+                              _stationCallStatusSubscription?.cancel();
                               // Stop incoming ringtone on decline
                               await RingtoneService.stop();
                               

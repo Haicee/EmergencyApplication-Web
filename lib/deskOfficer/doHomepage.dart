@@ -10,6 +10,7 @@ import 'dart:async';
 import 'components/answeredViewDetails.dart';
 import '../models/station.dart'; // Add Station import
 import '../screens/officer_map_screen.dart'; // Add OfficerMapScreen import
+import '../services/call_notification_service.dart';
 
 class DeskOfficerHomePage extends StatefulWidget {
   final String username;
@@ -329,6 +330,11 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
                     _stationName = stationName;
                   });
                   // Setup call listeners after station name is loaded
+                  // Initialize notifications and save officer FCM token for this station
+                  try {
+                    await CallNotificationService().initialize();
+                    await CallNotificationService().saveOfficerFcmToken(stationName, widget.officerId);
+                  } catch (_) {}
                   _setupCallDataListeners();
                   _setupCallListeners();
                   return;
@@ -580,16 +586,12 @@ class _DeskOfficerHomePageState extends State<DeskOfficerHomePage> with TickerPr
         ],
       ),
       // Add floating action button for map
-      floatingActionButton: Positioned(
-        bottom: 20,
-        left: 20,
-        child: FloatingActionButton(
-          onPressed: _goToOfficerMapScreen,
-          backgroundColor: Color.fromARGB(255, 75, 84, 255),
-          foregroundColor: Colors.white,
-          tooltip: 'View Map & Search Coordinates',
-          child: Icon(Icons.map, size: 28),
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _goToOfficerMapScreen,
+        backgroundColor: Color.fromARGB(255, 75, 84, 255),
+        foregroundColor: Colors.white,
+        tooltip: 'View Map & Search Coordinates',
+        child: Icon(Icons.map, size: 28),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
     );

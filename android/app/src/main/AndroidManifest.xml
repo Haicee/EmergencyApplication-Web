@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Notifications for incoming calls -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
     <!-- Add camera permission -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -63,6 +66,10 @@
             android:enabled="true"
             android:exported="true"
             android:foregroundServiceType="location" />
+        <!-- Default FCM channel for high-priority call notifications -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="emergency_calls" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

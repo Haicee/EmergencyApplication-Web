@@ -1,0 +1,9 @@
+{
+  "functions": [
+    {
+      "source": "firebase_functions",
+      "codebase": "default",
+      "predeploy": []
+    }
+  ]
+}

@@ -11,6 +11,14 @@ import 'deskOfficer/doHomepage.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'responders/resHompage.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/call_notification_service.dart';
+
+/// Top-level background handler for FCM messages (required for terminated state)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+}
 
 Future<void> main() async {
   try {
@@ -21,6 +29,10 @@ Future<void> main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     ).whenComplete(() => print('Firebase Initialized'));
+    // Register background handler
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // Initialize call notifications (channels, permissions, handlers)
+    await CallNotificationService().initialize();
     
     runApp(MyApp());
   } catch (e) {

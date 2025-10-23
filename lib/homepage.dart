@@ -18,6 +18,7 @@ import 'package:connectivity_plus/connectivity_plus.dart'; // Import connectivit
 import 'services/sync_service.dart'; // Import the new SyncService
 import 'package:fluttertoast/fluttertoast.dart'; // Import fluttertoast
 import 'package:url_launcher/url_launcher.dart'; // Import url_launcher for phone dialer
+import 'services/call_notification_service.dart';
 
 class ResponsiveHomePage extends StatelessWidget {
   final String username;
@@ -110,7 +111,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
-  String _currentLocation = "Fetching location...";
+  String _currentLocation = "Locationing...";
   late AnimationController _controller;
   Timer? _holdTimer;
   // Incoming callback listening
@@ -148,6 +149,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat();
+    // Ensure FCM token is saved for this user to receive incoming-call pushes
+    CallNotificationService().saveFcmTokenForUser(widget.username);
     _listenForIncomingCallbacks();
     _loadStations();
     
@@ -753,6 +756,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }) {
     if (_isShowingIncomingDialog || !mounted) return;
     _isShowingIncomingDialog = true;
+    // Stop any ongoing notification sound (heads-up call) before showing in-app dialog
+    CallNotificationService().dismissIncomingCallNotification();
     
     showDialog(
       context: context,
@@ -765,12 +770,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         callId: callId,
         region: region, // Pass region to dialog
         onAnswer: () async {
+          // Ensure ringtone/notification is stopped as soon as user answers
+          await CallNotificationService().dismissIncomingCallNotification();
           Navigator.of(ctx).pop();
           _isShowingIncomingDialog = false;
           _activeIncomingCallIds.remove(callId);
           await _answerIncomingCallback(callId: callId, stationName: stationName);
         },
         onDecline: () async {
+          // Ensure ringtone/notification is stopped as soon as user declines
+          await CallNotificationService().dismissIncomingCallNotification();
           Navigator.of(ctx).pop();
           _isShowingIncomingDialog = false;
           _activeIncomingCallIds.remove(callId);

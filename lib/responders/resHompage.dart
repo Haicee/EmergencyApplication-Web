@@ -6,6 +6,7 @@ import '../main.dart';
 import 'dart:async';
 import '../models/station.dart';
 import '../screens/officer_map_screen.dart';
+import '../services/call_notification_service.dart';
 
 // Responder task details UI
 import 'task_details_page.dart';
@@ -224,6 +225,12 @@ DateTime? _parseTimestamp(String? timestamp) {
                 _responderName = responderData['fullName'] ?? widget.username;
               });
               
+              // Initialize notifications and save responder FCM token for this station
+              try {
+                await CallNotificationService().initialize();
+                await CallNotificationService().saveResponderFcmToken(stationName, widget.responderId);
+              } catch (_) {}
+
               // Create Station object if we have location data
               if (stationMap.containsKey('latitude') && stationMap.containsKey('longitude')) {
                 stationsList.add(Station(

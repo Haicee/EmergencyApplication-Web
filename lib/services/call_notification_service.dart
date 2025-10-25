@@ -180,4 +180,23 @@ class CallNotificationService {
       debugPrint('Error saving officer FCM token: $e');
     }
   }
+
+  /// Save FCM token for a responder so assignments can trigger push notifications
+  /// Path: Responders/{stationName}/{responderId}/fcmToken
+  Future<void> saveResponderFcmToken(String stationName, String responderId) async {
+    try {
+      final token = await _messaging.getToken();
+      if (token == null) return;
+      final ref = FirebaseDatabase.instance.ref('Responders/$stationName/$responderId');
+      await ref.update({'fcmToken': token});
+      // Persist on refresh
+      _messaging.onTokenRefresh.listen((newToken) async {
+        try {
+          await ref.update({'fcmToken': newToken});
+        } catch (_) {}
+      });
+    } catch (e) {
+      debugPrint('Error saving responder FCM token: $e');
+    }
+  }
 }

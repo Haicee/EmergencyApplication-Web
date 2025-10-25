@@ -56,6 +56,80 @@ exports.notifyIncomingCall = functions.database
     }
   });
 
+// Notifies all active responders of a station when Desk Officer assigns a task
+exports.notifyResponderAssignment = functions.database
+  .ref('/Responders/{stationName}/ReceivedCallDetails/Assigned/{callId}')
+  .onCreate(async (snapshot, context) => {
+    const { stationName, callId } = context.params;
+    const taskData = snapshot.val() || {};
+
+    try {
+      // Collect responder tokens under the station
+      const respondersSnap = await admin
+        .database()
+        .ref(`/Responders/${stationName}`)
+        .get();
+
+      if (!respondersSnap.exists()) {
+        console.log(`No responders found for station ${stationName}`);
+        return null;
+      }
+
+      const tokens = new Set();
+      respondersSnap.forEach((child) => {
+        const v = child.val() || {};
+        const status = v.status || 'Inactive';
+        const token = v.fcmToken || null;
+        if (status === 'Active' && token && typeof token === 'string') {
+          tokens.add(token);
+        }
+      });
+
+      if (tokens.size === 0) {
+        console.log(`No active responder tokens for station ${stationName}`);
+        return null;
+      }
+
+      const title = `New Assignment`;
+      const body = `${taskData.callerName || 'Citizen'} needs assistance`;
+
+      const message = {
+        tokens: Array.from(tokens),
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'emergency_calls',
+            sound: 'default',
+            priority: 'max',
+            visibility: 'public',
+          },
+        },
+        data: {
+          type: 'incoming_emergency',
+          callId: String(callId),
+          station: String(stationName),
+          username: String(taskData.callerName || 'Citizen'),
+          streetAddress: String(taskData.location || ''),
+          city: String(taskData.city || ''),
+          region: String(taskData.region || ''),
+        },
+        notification: {
+          title,
+          body,
+        },
+      };
+
+      const response = await admin.messaging().sendEachForMulticast(message);
+      console.log(
+        `Responder notify: station=${stationName} call=${callId} tokens=${tokens.size} success=${response.successCount} failure=${response.failureCount}`
+      );
+      return null;
+    } catch (e) {
+      console.error('Error sending responder assignment notification', e);
+      return null;
+    }
+  });
+
 // Notifies all active desk officers of a station when a citizen creates an ActiveCall
 exports.notifyStationIncomingEmergency = functions.database
   .ref('/Desk Officer/{stationName}/ReceivedCalls/ActiveCalls/{callId}')

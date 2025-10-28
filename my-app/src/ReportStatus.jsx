@@ -10,6 +10,18 @@ const titleCase = (str) => (str || '')
   .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : '')
   .join(' ');
 
+const isLikelyHttpUrl = (value) => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith('<')) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 const parseDateValue = (value) => {
   if (!value && value !== 0) return null;
   if (typeof value === 'number') {
@@ -171,6 +183,8 @@ export default function ReportStatus() {
   const [deleteConfirm, setDeleteConfirm] = useState({ callId: null, stationName: null });
   const [resolvedLocation, setResolvedLocation] = useState({ status: 'idle', address: '' });
   const [imageError, setImageError] = useState(false);
+  const [attachmentError, setAttachmentError] = useState(false);
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState(null);
 
   const stationReports = reportsByStation[selectedStation] || [];
   const mapsLink = viewReport ? buildMapsLink(viewReport.citizenLatitude, viewReport.citizenLongitude) : null;
@@ -194,6 +208,8 @@ export default function ReportStatus() {
   useEffect(() => {
     // Reset image error when switching reports
     setImageError(false);
+    setAttachmentError(false);
+    setAttachmentPreviewUrl(null);
 
     let active = true;
     const controller = new AbortController();
@@ -276,6 +292,12 @@ export default function ReportStatus() {
       const imageStrLower = trimmedImage.toLowerCase();
       const isPlaceholder = imageStrLower === 'not provided' || imageStrLower === 'n/a' || imageStrLower === 'none' || imageStrLower === 'null' || trimmedImage === '';
 
+      const rawAttachment = obj.imageAttached || obj.attachment || obj.attachmentUrl || '';
+      const trimmedAttachment = (rawAttachment || '').toString().trim();
+      const attachmentLower = trimmedAttachment.toLowerCase();
+      const hasAttachment = trimmedAttachment && !['not provided', 'n/a', 'none', 'null'].includes(attachmentLower);
+      const attachmentUrl = hasAttachment && isLikelyHttpUrl(trimmedAttachment) ? trimmedAttachment : '';
+
       return {
         callId,
         callerName: ensureValue(obj.callerName || obj.caller || obj.name),
@@ -289,7 +311,8 @@ export default function ReportStatus() {
         location: ensureValue(obj.location),
         citizenLatitude: obj.citizenLatitude ?? obj.latitude ?? '',
         citizenLongitude: obj.citizenLongitude ?? obj.longitude ?? '',
-        imageAttached: ensureValue(obj.imageAttached || obj.attachment || obj.attachmentUrl),
+        imageAttached: hasAttachment ? trimmedAttachment : 'Not provided',
+        imageAttachmentUrl: attachmentUrl,
         callDuration: formatDuration(obj.answeredAt, obj.endedAt) || ensureValue(obj.callDuration || obj.duration),
         status: titleCase(obj.status || 'completed'),
         station,
@@ -486,7 +509,36 @@ export default function ReportStatus() {
                     </div>
                     <div>
                       <h4 className="text-xs sm:text-sm font-semibold text-blue-600 uppercase tracking-wide">Attachment</h4>
-                      <p className="mt-2 sm:mt-3 text-slate-900">{ensureValue(viewReport.imageAttached)}</p>
+                      {viewReport.imageAttachmentUrl && !attachmentError ? (
+                        <div className="mt-2 sm:mt-3 space-y-3">
+                          <button
+                            type="button"
+                            onClick={() => setAttachmentPreviewUrl(viewReport.imageAttachmentUrl)}
+                            className="w-full bg-slate-100 border border-blue-100 rounded-xl overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            aria-label="Open attachment preview"
+                          >
+                            <img
+                              src={viewReport.imageAttachmentUrl}
+                              alt={`${viewReport.callerName} attachment`}
+                              className="w-full h-48 object-contain bg-white"
+                              loading="lazy"
+                              onError={() => setAttachmentError(true)}
+                            />
+                          </button>
+                          <div className="flex flex-wrap gap-3 text-sm">
+                            <a
+                              href={viewReport.imageAttachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-700"
+                            >
+                              Download Image
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-2 sm:mt-3 text-slate-900">{ensureValue(viewReport.imageAttached)}</p>
+                      )}
                     </div>
                   </div>
 
@@ -574,6 +626,46 @@ export default function ReportStatus() {
                 className="px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {attachmentPreviewUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 px-4" role="dialog" aria-modal="true">
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setAttachmentPreviewUrl(null)}
+              className="absolute top-3 right-3 h-9 w-9 flex items-center justify-center rounded-full bg-white/80 hover:bg-white text-slate-700 shadow"
+              aria-label="Close attachment preview"
+            >
+              ✕
+            </button>
+            <div className="bg-slate-900 p-4 text-white text-sm font-medium">Attachment Preview</div>
+            <div className="bg-slate-50 p-4 flex items-center justify-center">
+              <img
+                src={attachmentPreviewUrl}
+                alt="Attachment preview"
+                className="max-h-[70vh] w-full object-contain bg-white"
+              />
+            </div>
+            <div className="flex justify-end gap-3 px-4 py-3 bg-white border-t">
+              <a
+                href={attachmentPreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                Download Image
+              </a>
+              <button
+                type="button"
+                onClick={() => setAttachmentPreviewUrl(null)}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+              >
+                Close
               </button>
             </div>
           </div>

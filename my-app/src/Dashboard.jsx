@@ -2,6 +2,51 @@ import React, { useState, useEffect } from "react";
 import { UserGroupIcon, PhoneIncomingIcon, ShieldCheckIcon } from "@heroicons/react/solid";
 import apiService from "./services/api";
 
+const profileImageCandidates = [
+  'profileImageUrl',
+  'profileImageURL',
+  'profileImage',
+  'profilePicture',
+  'photoURL',
+  'photoUrl',
+  'avatarUrl',
+  'avatarURL',
+  'imageUrl'
+];
+
+const getProfileImageUrl = (user = {}) => {
+  for (const key of profileImageCandidates) {
+    const value = user?.[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return '';
+};
+
+const AvatarCell = ({ user, initials, isMale }) => {
+  const [imageError, setImageError] = useState(false);
+  const avatarUrl = getProfileImageUrl(user);
+  const showInitials = imageError || !avatarUrl;
+  const bgClass = isMale ? "bg-blue-500" : "bg-red-500";
+
+  return (
+    <div className={`relative w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-white text-sm font-semibold mr-3 ${showInitials ? bgClass : 'bg-gray-100'}`}>
+      {!showInitials && (
+        <img
+          src={avatarUrl}
+          alt={`${user?.fullName || user?.name || user?.username || 'User'} profile`}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setImageError(true)}
+        />
+      )}
+      {showInitials && <span>{initials}</span>}
+    </div>
+  );
+};
+
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState({
     totalUsers: 0,
@@ -158,14 +203,10 @@ export default function Dashboard() {
                   const isMale = gender.toLowerCase() === 'male';
                   
                   return (
-                    <tr key={idx} className="hover:bg-gray-50 transition-colors duration-150">
+                    <tr key={user.username || user.fullName || user.name || idx} className="hover:bg-gray-50 transition-colors duration-150">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold mr-3 ${
-                            isMale ? "bg-blue-500" : "bg-red-500"
-                          }`}>
-                            {initials}
-                          </div>
+                          <AvatarCell user={user} initials={initials} isMale={isMale} />
                           <div>
                             <p className="text-sm font-medium text-gray-900">
                               {user.fullName || user.name || user.username || 'Unknown User'}

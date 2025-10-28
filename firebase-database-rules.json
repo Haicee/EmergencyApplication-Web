@@ -1,0 +1,75 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    
+    "users": {
+      ".read": "auth != null",
+      ".indexOn": ["role", "status", "createdAt"],
+      "$userId": {
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['username', 'role', 'status'])"
+      }
+    },
+    
+    "AuthAccounts": {
+      ".read": "auth != null",
+      ".indexOn": ["role", "status"],
+      "$username": {
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['username', 'password', 'role', 'status'])"
+      }
+    },
+    
+    "Desk Officer": {
+      ".read": "auth != null",
+      "$station": {
+        ".write": "auth != null",
+        "$username": {
+          ".validate": "newData.hasChildren(['username', 'status'])"
+        }
+      }
+    },
+    
+    "Responders": {
+      ".read": "auth != null",
+      "$station": {
+        ".write": "auth != null",
+        "$username": {
+          ".validate": "newData.hasChildren(['username', 'status'])"
+        }
+      }
+    },
+    
+    "StationsCallLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "ActiveCalls": {
+        ".indexOn": [".value"]
+      },
+      "AnsweredCalls": {
+        ".indexOn": [".value"]
+      },
+      "MissedCalls": {
+        ".indexOn": [".value"]
+      }
+    },
+    
+    "emergencyCalls": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["status", "createdAt"],
+      "$callId": {
+        ".validate": "newData.hasChildren(['id', 'status'])"
+      }
+    },
+    
+    "stations": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$stationId": {
+        ".validate": "newData.hasChildren(['name'])"
+      }
+    }
+  }
+}

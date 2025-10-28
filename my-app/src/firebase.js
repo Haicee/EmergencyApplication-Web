@@ -4,15 +4,16 @@ import { getAnalytics } from "firebase/analytics";
 import { getDatabase } from "firebase/database";
 
 // Your web app's Firebase configuration
+// New Blaze Plan Project: resmeapp-1
 const firebaseConfig = {
-  apiKey: "AIzaSyC1XrdfX1tiYZkdtgX_zMH3nVh9aKVCn30",
-  authDomain: "emergency-73ada.firebaseapp.com",
-  databaseURL: "https://emergency-73ada-default-rtdb.firebaseio.com",
-  projectId: "emergency-73ada",
-  storageBucket: "emergency-73ada.firebasestorage.app",
-  messagingSenderId: "969690894666",
-  appId: "1:969690894666:web:3028ab7d1f7d3fc9f4b1b3",
-  measurementId: "G-DQN68V1PX9"
+  apiKey: "AIzaSyC9DBabjSOisYBPmH-UGo1sOWX0xfdnkxs",
+  authDomain: "resmeapp-1.firebaseapp.com",
+  databaseURL: "https://resmeapp-1-default-rtdb.firebaseio.com",
+  projectId: "resmeapp-1",
+  storageBucket: "resmeapp-1.firebasestorage.app",
+  messagingSenderId: "984771585091",
+  appId: "1:984771585091:web:ece3054f2577f9910e20f6",
+  measurementId: "G-6F0ZJHWY83"
 };
 
 // Initialize Firebase

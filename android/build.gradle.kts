@@ -1,10 +1,10 @@
 buildscript {
     extra.apply {
-        set("kotlin_version", "1.9.0")
+        set("kotlin_version", "2.1.0")
         set("java_version", JavaVersion.VERSION_17)
         set("compileSdkVersion", 35)
         set("targetSdkVersion", 35)
-        set("minSdkVersion", 21)
+        set("minSdkVersion", 23)
     }
     repositories {
         google()
@@ -35,7 +35,7 @@ subprojects {
                 (androidExt as com.android.build.gradle.BaseExtension).apply {
                     compileSdkVersion(35)
                     defaultConfig {
-                        minSdk = 21
+                        minSdk = 23
                         targetSdk = 35
                     }
                     compileOptions {

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter/services.dart';
 import 'firebase_service.dart';
+import 'services/storage_service.dart';
 // import 'dart:convert';  this is for hash256 password converter
 // import 'package:crypto/crypto.dart';  encrypting/decrypting pass
 import 'package:firebase_database/firebase_database.dart';
@@ -449,8 +450,44 @@ class RegistrationForm extends State<RegisterPage> {
 
             print('Username and contact number checks passed'); // Debug log
 
-            // Upload profile image to Firebase Storage and get URL
-            String profileImageUrl = "placeholder_url";
+            // Show loading dialog while uploading image and saving data
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => const Center(
+                child: CircularProgressIndicator(),
+              ),
+            );
+
+            String profileImageUrl;
+            try {
+              profileImageUrl = await StorageService().uploadProfileImage(
+                file: _profileImage!,
+                username: username,
+              );
+              print('Profile image uploaded successfully: $profileImageUrl');
+            } catch (e, stackTrace) {
+              print('Error uploading profile image: $e');
+              print('Stack trace: $stackTrace');
+              if (mounted) {
+                Navigator.pop(context); // close loading dialog
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Upload Failed'),
+                    content: const Text('Could not upload profile photo. Please try again.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return;
+            }
 
             print('Attempting to save user data to Firebase...'); // Debug log
             // Save user data to Firebase
@@ -472,6 +509,10 @@ class RegistrationForm extends State<RegisterPage> {
                 birthdate: _birthdateText,
             );
             print('User data saved successfully'); // Debug log
+
+            if (mounted) {
+              Navigator.pop(context); // Close loading dialog
+            }
 
             // Write to centralized AuthAccounts for role-based login (duplicate for authentication)
             await FirebaseDatabase.instance

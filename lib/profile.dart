@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'main.dart';
-import 'dart:io';
 
 class ProfilePage extends StatefulWidget {
   final String username;
@@ -42,7 +39,6 @@ class _ProfilePageState extends State<ProfilePage> {
   String _birthdateText = 'Not provided';
   
   // Profile image
-  File? _profileImage;
   String? _profileImageUrl;
   
   // Dropdown options
@@ -130,32 +126,22 @@ class _ProfilePageState extends State<ProfilePage> {
     _profileImageUrl = _userData['profileImageUrl'];
   }
 
-  Future<void> _takePicture() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.camera);
-    
-    if (image != null) {
-      setState(() {
-        _profileImage = File(image.path);
-      });
+  Widget _buildProfileImage() {
+    ImageProvider? provider;
+    if (_profileImageUrl != null &&
+        _profileImageUrl!.isNotEmpty &&
+        _profileImageUrl! != 'Not provided') {
+      provider = NetworkImage(_profileImageUrl!);
     }
-  }
 
-  Future<String?> _uploadProfileImage() async {
-    if (_profileImage == null) return _profileImageUrl;
-    
-    try {
-      final String fileName = 'profile_${widget.username}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final Reference storageRef = FirebaseStorage.instance.ref().child('profile_images').child(fileName);
-      
-      final UploadTask uploadTask = storageRef.putFile(_profileImage!);
-      final TaskSnapshot snapshot = await uploadTask;
-      
-      return await snapshot.ref.getDownloadURL();
-    } catch (e) {
-      print('Error uploading image: $e');
-      return _profileImageUrl;
-    }
+    return CircleAvatar(
+      radius: 48,
+      backgroundColor: Colors.grey[300],
+      backgroundImage: provider,
+      child: provider == null
+          ? Icon(Icons.person, size: 48, color: Colors.grey[700])
+          : null,
+    );
   }
 
   Future<void> _saveProfile() async {
@@ -173,8 +159,8 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       );
       
-      // Upload profile image if changed
-      String? imageUrl = await _uploadProfileImage();
+      // Profile image is fixed post-registration, reuse stored URL
+      final String? imageUrl = _profileImageUrl;
       
       // Prepare updated data
       Map<String, dynamic> updatedData = {
@@ -211,7 +197,6 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         _userData.addAll(updatedData);
         _isEditMode = false;
-        _profileImage = null;
         if (imageUrl != null) _profileImageUrl = imageUrl;
       });
       
@@ -566,48 +551,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         shape: BoxShape.circle,
                         color: Colors.white.withOpacity(0.3),
                       ),
-                      child: ClipOval(
-                        child: _profileImage != null
-                            ? Image.file(_profileImage!, fit: BoxFit.cover)
-                            : _profileImageUrl != null
-                                ? Image.network(_profileImageUrl!, fit: BoxFit.cover)
-                                : Container(
-                                    color: Colors.grey[300],
-                                    child: Icon(
-                                      Icons.person,
-                                      size: 50,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                      ),
+                      child: Center(child: _buildProfileImage()),
                     ),
-                    if (_isEditMode)
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: GestureDetector(
-                          onTap: _takePicture,
-                          child: Container(
-                            padding: EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.edit,
-                              size: 16,
-                              color: Color(0xFFE74C3C),
-                            ),
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),

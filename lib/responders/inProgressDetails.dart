@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../services/storage_service.dart';
 import '../models/station.dart';
 import '../screens/officer_map_screen.dart';
 
@@ -617,6 +619,99 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
   late final TextEditingController _controller;
   bool _isEditing = false;
   File? _imageFile;
+  bool _isUploading = false;
+  String? _uploadedImageUrl;
+
+  Future<bool> _ensureCameraPermission() async {
+    final status = await Permission.camera.status;
+    if (status.isGranted) return true;
+
+    final result = await Permission.camera.request();
+    if (result.isGranted) {
+      return true;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.isPermanentlyDenied
+                ? 'Camera permission permanently denied. Enable it from settings to attach photos.'
+                : 'Camera permission is required to capture incident photos.',
+          ),
+          action: result.isPermanentlyDenied
+              ? SnackBarAction(
+                  label: 'Settings',
+                  onPressed: () {
+                    openAppSettings();
+                  },
+                )
+              : null,
+        ),
+      );
+    }
+
+    return false;
+  }
+
+  Future<void> _uploadIncidentImage() async {
+    if (_imageFile == null) return;
+
+    final station = (widget.taskData['station'] ?? '').toString();
+    final callId = (widget.taskData['callId'] ?? '').toString();
+    final responder = (widget.taskData['responder'] ?? widget.taskData['responderName'] ?? '').toString();
+
+    if (station.isEmpty || callId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Missing station or callId; cannot upload image.')),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      final url = await StorageService().uploadResponderIncidentImage(
+        file: _imageFile!,
+        station: station,
+        callId: callId,
+        responder: responder,
+      );
+
+      final ref = FirebaseDatabase.instance
+          .ref('Responders/$station/ReceivedCallDetails/InProgress/$callId');
+
+      await ref.update({
+        'imageAttached': url,
+        'imageUploadedAt': ServerValue.timestamp,
+      });
+
+      if (mounted) {
+        setState(() {
+          _uploadedImageUrl = url;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Incident photo uploaded successfully.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload image: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -625,6 +720,11 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
     final initialText = (widget.taskData['description'] ?? widget.taskData['responder_description'] ?? '')
         .toString();
     _controller = TextEditingController(text: initialText);
+
+    final existingImage = (widget.taskData['imageAttached'] ?? '').toString().trim();
+    if (existingImage.isNotEmpty && existingImage.toLowerCase() != 'image attached') {
+      _uploadedImageUrl = existingImage;
+    }
 
     // If initial snapshot did not include description, try to fetch it from DB once.
     if (initialText.isEmpty) {
@@ -654,28 +754,18 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
 
   Future<void> _openCamera() async {
     try {
+      final hasPermission = await _ensureCameraPermission();
+      if (!hasPermission) {
+        return;
+      }
+
       final picked = await ImagePicker().pickImage(source: ImageSource.camera, preferredCameraDevice: CameraDevice.rear);
       if (picked != null) {
         setState(() {
           _imageFile = File(picked.path);
+          _uploadedImageUrl = null;
         });
-        // Write placeholder to DB: imageAttached = "Image Attached"
-        final station = (widget.taskData['station'] ?? '').toString();
-        final callId = (widget.taskData['callId'] ?? '').toString();
-        if (station.isNotEmpty && callId.isNotEmpty) {
-          final ref = FirebaseDatabase.instance
-              .ref('Responders/$station/ReceivedCallDetails/InProgress/$callId');
-          await ref.update({'imageAttached': 'Image Attached'});
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Image Attached saved to report.')),
-            );
-          }
-        } else if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Missing station or callId; cannot save image flag.')),
-          );
-        }
+        await _uploadIncidentImage();
       }
     } catch (e) {
       if (mounted) {
@@ -778,12 +868,21 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey[400]!),
               ),
-              child: _imageFile != null
-                  ? ClipRRect(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_imageFile != null)
+                    ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: Image.file(_imageFile!, fit: BoxFit.cover),
                     )
-                  : Column(
+                  else if (_uploadedImageUrl != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(_uploadedImageUrl!, fit: BoxFit.cover),
+                    )
+                  else
+                    Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.camera_alt, color: Colors.grey[600], size: 40),
@@ -791,6 +890,18 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
                         Text('Add Photo', style: TextStyle(color: Colors.grey[800])),
                       ],
                     ),
+                  if (_isUploading)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],

@@ -13,7 +13,6 @@ import 'services/geofence_manager.dart';
 import 'services/emergency_mode_service.dart'; // Import the emergency mode service
 import 'services/offline_emergency_service.dart'; // Import the offline emergency service
 import 'services/offline_map_service.dart'; // Import the offline map service
-import 'package:permission_handler/permission_handler.dart'; // Import permission handler
 import 'package:connectivity_plus/connectivity_plus.dart'; // Import connectivity
 import 'services/sync_service.dart'; // Import the new SyncService
 import 'package:fluttertoast/fluttertoast.dart'; // Import fluttertoast
@@ -38,7 +37,7 @@ class ResponsiveHomePage extends StatelessWidget {
           IconButton(icon: Icon(Icons.notifications), onPressed: () {}),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: CircleAvatar(child: Icon(Icons.person)),
+            child: const CircleAvatar(child: Icon(Icons.person)),
           ),
         ],
       ),
@@ -114,6 +113,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   String _currentLocation = "Locating...";
   late AnimationController _controller;
   Timer? _holdTimer;
+  String? _profileImageUrl;
+
   // Incoming callback listening
   StreamSubscription? _incomingCallSub;
   bool _isShowingIncomingDialog = false;
@@ -141,10 +142,33 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   bool _showConnectivityBanner = false;
   Timer? _connectivityBannerTimer;
 
+  Future<void> _loadProfileImage() async {
+    try {
+      final snapshot = await FirebaseDatabase.instance
+          .ref()
+          .child('users')
+          .child(widget.username)
+          .child('profileImageUrl')
+          .get();
+      if (snapshot.exists) {
+        final url = snapshot.value?.toString();
+        if (mounted) {
+          setState(() {
+            _profileImageUrl = (url != null && url.isNotEmpty && url != 'Not provided') ? url : null;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading profile image: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _determinePosition();
+    _loadProfileImage();
+
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -296,7 +320,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       MaterialPageRoute(
         builder: (context) => ProfilePage(username: widget.username),
       ),
-    );
+    ).then((_) => _loadProfileImage());
   }
    
   void _goToMapScreen() {
@@ -470,7 +494,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     debugPrint('🔄 Pull-to-refresh triggered');
     
     try {
-      // Check actual internet connectivity (this will update the banner automatically)
+      await _loadProfileImage();
+      await _loadStations();
+      await _determinePosition();
       await _checkConnectivity();
       
       // Reload stations data if we have internet
@@ -1482,7 +1508,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 child: CircleAvatar(
                   radius: 28,
                   backgroundColor: Colors.grey[300],
-                  child: Icon(Icons.person, color: Colors.grey[700]),
+                  backgroundImage:
+                      _profileImageUrl != null ? NetworkImage(_profileImageUrl!) : null,
+                  child: _profileImageUrl == null
+                      ? Icon(Icons.person, color: Colors.grey[700])
+                      : null,
                 ),
               ),
             ),

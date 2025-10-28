@@ -483,10 +483,27 @@ class CompletedDetailsPage extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: Colors.grey[400]!),
                               ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                imageAttached.isNotEmpty ? imageAttached : 'No attachment',
-                                style: TextStyle(color: imageAttached.isNotEmpty ? Colors.black87 : Colors.grey[700]),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: imageAttached.isNotEmpty
+                                    ? Image.network(
+                                        imageAttached,
+                                        fit: BoxFit.cover,
+                                        loadingBuilder: (context, child, progress) {
+                                          if (progress == null) return child;
+                                          return Center(
+                                            child: CircularProgressIndicator(
+                                              value: progress.expectedTotalBytes != null
+                                                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                                  : null,
+                                            ),
+                                          );
+                                        },
+                                        errorBuilder: (context, error, stack) => _AttachmentPlaceholder(
+                                          message: 'Unable to load attachment',
+                                        ),
+                                      )
+                                    : const _AttachmentPlaceholder(),
                               ),
                             ),
                           ],
@@ -616,6 +633,29 @@ class _LabeledBox extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AttachmentPlaceholder extends StatelessWidget {
+  final String message;
+  const _AttachmentPlaceholder({this.message = 'No attachment'});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.image_not_supported_outlined, color: Colors.grey[600], size: 36),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: TextStyle(color: Colors.grey[700]),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }

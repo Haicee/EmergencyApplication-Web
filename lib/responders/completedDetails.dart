@@ -10,6 +10,8 @@ class CompletedDetailsPage extends StatelessWidget {
 
   const CompletedDetailsPage({Key? key, required this.taskData}) : super(key: key);
 
+  static const double _attachmentSpacing = 12;
+
   // Helpers (read-only)
   Future<void> _openSharedLocation(BuildContext context) async {
     try {
@@ -190,6 +192,123 @@ class CompletedDetailsPage extends StatelessWidget {
     if (d.inHours > 0) return '${d.inHours}h ${d.inMinutes % 60}m ${d.inSeconds % 60}s';
     if (d.inMinutes > 0) return '${d.inMinutes}m ${d.inSeconds % 60}s';
     return '${d.inSeconds}s';
+  }
+
+  static int? _normalizeTimestamp(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is double) return raw.toInt();
+    if (raw is String) {
+      final trimmed = raw.trim();
+      final asInt = int.tryParse(trimmed);
+      if (asInt != null) return asInt;
+      try {
+        final parsed = DateTime.parse(trimmed);
+        return parsed.millisecondsSinceEpoch;
+      } catch (_) {}
+    }
+    if (raw is Map) {
+      final seconds = raw['seconds'];
+      final nanos = raw['nanoseconds'] ?? raw['nanos'];
+      if (seconds is int) {
+        final base = seconds * 1000;
+        if (nanos is int) {
+          return base + (nanos / 1e6).round();
+        }
+        return base;
+      }
+    }
+    return null;
+  }
+
+  static List<_IncidentAttachment> _parseIncidentAttachments(dynamic raw) {
+    final attachments = <_IncidentAttachment>[];
+    if (raw is Map) {
+      raw.forEach((key, value) {
+        final id = key.toString();
+        if (value is Map) {
+          final url = (value['url'] ?? value['image'] ?? '').toString().trim();
+          if (url.isEmpty) return;
+          attachments.add(
+            _IncidentAttachment(
+              url: url,
+              id: id,
+              uploadedAt: _normalizeTimestamp(value['uploadedAt'] ?? value['uploaded_at']),
+            ),
+          );
+        } else if (value != null) {
+          final url = value.toString().trim();
+          if (url.isEmpty) return;
+          attachments.add(
+            _IncidentAttachment(
+              url: url,
+              id: id,
+            ),
+          );
+        }
+      });
+    } else if (raw is List) {
+      for (var i = 0; i < raw.length; i++) {
+        final value = raw[i];
+        final id = i.toString();
+        if (value is Map) {
+          final url = (value['url'] ?? value['image'] ?? '').toString().trim();
+          if (url.isEmpty) continue;
+          attachments.add(
+            _IncidentAttachment(
+              url: url,
+              id: id,
+              uploadedAt: _normalizeTimestamp(value['uploadedAt'] ?? value['uploaded_at']),
+            ),
+          );
+        } else if (value != null) {
+          final url = value.toString().trim();
+          if (url.isEmpty) continue;
+          attachments.add(
+            _IncidentAttachment(
+              url: url,
+              id: id,
+            ),
+          );
+        }
+      }
+    } else if (raw is String) {
+      final url = raw.trim();
+      if (url.isNotEmpty) {
+        attachments.add(_IncidentAttachment(url: url, isLegacy: true));
+      }
+    }
+
+    attachments.sort((a, b) {
+      final aTs = a.uploadedAt ?? 0;
+      final bTs = b.uploadedAt ?? 0;
+      if (aTs == bTs) {
+        return a.url.compareTo(b.url);
+      }
+      return aTs.compareTo(bTs);
+    });
+
+    return attachments;
+  }
+
+  List<_IncidentAttachment> _mergeFallbackAttachment(
+    List<_IncidentAttachment> attachments,
+    String fallbackUrl,
+    int? fallbackUploadedAt,
+  ) {
+    if (fallbackUrl.isEmpty) return attachments;
+    final exists = attachments.any((att) => att.url == fallbackUrl);
+    if (exists) return attachments;
+
+    attachments.add(
+      _IncidentAttachment(
+        url: fallbackUrl,
+        uploadedAt: fallbackUploadedAt,
+        isLegacy: true,
+      ),
+    );
+    attachments.sort((a, b) => (a.uploadedAt ?? 0).compareTo(b.uploadedAt ?? 0));
+    return attachments;
   }
 
   Widget _buildHeader(
@@ -450,8 +569,13 @@ class CompletedDetailsPage extends StatelessWidget {
                           : <String, dynamic>{};
                       final description = (valueMap['description'] ?? valueMap['responder_description'] ?? taskData['description'] ?? '')
                           .toString();
-                      final imageAttached = (valueMap['imageAttached'] ?? taskData['imageAttached'] ?? '')
-                          .toString();
+                      final attachmentsRaw = valueMap['attachments'] ?? taskData['attachments'];
+                      final attachments = _parseIncidentAttachments(attachmentsRaw);
+                      final fallbackImage = (valueMap['imageAttached'] ?? taskData['imageAttached'] ?? '')
+                          .toString()
+                          .trim();
+                      final fallbackUploadedAt = _normalizeTimestamp(valueMap['imageUploadedAt'] ?? taskData['imageUploadedAt']);
+                      _mergeFallbackAttachment(attachments, fallbackImage, fallbackUploadedAt);
                       return _SectionCard(
                         title: 'Incident Report',
                         icon: Icons.edit_document,
@@ -473,39 +597,11 @@ class CompletedDetailsPage extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            const Text('Attachment', style: TextStyle(fontWeight: FontWeight.w600)),
+                            const Text('Attachments', style: TextStyle(fontWeight: FontWeight.w600)),
                             const SizedBox(height: 8),
-                            Container(
-                              height: 150,
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[200],
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.grey[400]!),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: imageAttached.isNotEmpty
-                                    ? Image.network(
-                                        imageAttached,
-                                        fit: BoxFit.cover,
-                                        loadingBuilder: (context, child, progress) {
-                                          if (progress == null) return child;
-                                          return Center(
-                                            child: CircularProgressIndicator(
-                                              value: progress.expectedTotalBytes != null
-                                                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
-                                                  : null,
-                                            ),
-                                          );
-                                        },
-                                        errorBuilder: (context, error, stack) => _AttachmentPlaceholder(
-                                          message: 'Unable to load attachment',
-                                        ),
-                                      )
-                                    : const _AttachmentPlaceholder(),
-                              ),
-                            ),
+                            attachments.isEmpty
+                                ? const _AttachmentPlaceholder()
+                                : _CompletedAttachmentGrid(attachments: attachments),
                           ],
                         ),
                       );
@@ -633,6 +729,75 @@ class _LabeledBox extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _IncidentAttachment {
+  const _IncidentAttachment({
+    required this.url,
+    this.id,
+    this.uploadedAt,
+    this.isLegacy = false,
+  });
+
+  final String url;
+  final String? id;
+  final int? uploadedAt;
+  final bool isLegacy;
+}
+
+class _CompletedAttachmentGrid extends StatelessWidget {
+  final List<_IncidentAttachment> attachments;
+  const _CompletedAttachmentGrid({required this.attachments});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final crossAxisCount = maxWidth > 600
+            ? 4
+            : maxWidth > 400
+                ? 3
+                : 2;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: CompletedDetailsPage._attachmentSpacing,
+            mainAxisSpacing: CompletedDetailsPage._attachmentSpacing,
+            childAspectRatio: 1,
+          ),
+          itemCount: attachments.length,
+          itemBuilder: (context, index) {
+            final attachment = attachments[index];
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Image.network(
+                  attachment.url,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return const Center(child: CircularProgressIndicator());
+                  },
+                  errorBuilder: (context, error, stackTrace) => const _AttachmentPlaceholder(
+                    message: 'Unable to load attachment',
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

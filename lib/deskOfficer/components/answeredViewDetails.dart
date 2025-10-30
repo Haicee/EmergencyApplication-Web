@@ -63,13 +63,49 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
 
   Future<void> _checkAlreadySent() async {
     try {
-      final ref = FirebaseDatabase.instance.ref(
-        'Responders/${widget.station}/ReceivedCallDetails/Assigned/${widget.callId}',
+      final root = FirebaseDatabase.instance.ref();
+
+      // 1) Prefer durable flag on Desk Officer AnsweredCalls
+      final flagRef = root.child(
+        'Desk Officer/${widget.station}/ReceivedCalls/AnsweredCalls/${widget.callId}/sendDetails',
       );
-      final snap = await ref.get();
+      final flagSnap = await flagRef.get();
       if (!mounted) return;
-      if (snap.exists) {
+      if (flagSnap.value == true) {
         setState(() => _isSent = true);
+        return;
+      }
+
+      // 2) Fallback: consider any responder status as already sent
+      final base = 'Responders/${widget.station}/ReceivedCallDetails';
+      final assigned = await root.child('$base/Assigned/${widget.callId}').get();
+      if (!mounted) return;
+      if (assigned.exists) {
+        setState(() => _isSent = true);
+        // Self-heal: backfill the flag so UI stays stable next time
+        root
+            .child('Desk Officer/${widget.station}/ReceivedCalls/AnsweredCalls/${widget.callId}')
+            .update({'sendDetails': true, 'sentAt': ServerValue.timestamp}).catchError((_) {});
+        return;
+      }
+
+      final inProg = await root.child('$base/InProgress/${widget.callId}').get();
+      if (!mounted) return;
+      if (inProg.exists) {
+        setState(() => _isSent = true);
+        root
+            .child('Desk Officer/${widget.station}/ReceivedCalls/AnsweredCalls/${widget.callId}')
+            .update({'sendDetails': true, 'sentAt': ServerValue.timestamp}).catchError((_) {});
+        return;
+      }
+
+      final completed = await root.child('$base/Completed/${widget.callId}').get();
+      if (!mounted) return;
+      if (completed.exists) {
+        setState(() => _isSent = true);
+        root
+            .child('Desk Officer/${widget.station}/ReceivedCalls/AnsweredCalls/${widget.callId}')
+            .update({'sendDetails': true, 'sentAt': ServerValue.timestamp}).catchError((_) {});
       }
     } catch (_) {
       // Silently ignore; default is not sent
@@ -438,11 +474,20 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
 
     try {
       final DatabaseReference dbRef = FirebaseDatabase.instance.ref();
-      final path = 'Responders/${widget.station}/ReceivedCallDetails/Assigned/${widget.callId}';
+      final responderAssignedPath = 'Responders/${widget.station}/ReceivedCallDetails/Assigned/${widget.callId}';
+      final responderInProgressPath = 'Responders/${widget.station}/ReceivedCallDetails/InProgress/${widget.callId}';
+      final responderCompletedPath = 'Responders/${widget.station}/ReceivedCallDetails/Completed/${widget.callId}';
+      final officerFlagBase = 'Desk Officer/${widget.station}/ReceivedCalls/AnsweredCalls/${widget.callId}';
 
-      // Check again server-side to avoid duplicates
-      final exists = (await dbRef.child(path).get()).exists;
-      if (exists) {
+      // Idempotency check: flag OR any responder status
+      final flagSnap = await dbRef.child('$officerFlagBase/sendDetails').get();
+      final alreadyFlagged = flagSnap.value == true;
+      final existsAssigned = (await dbRef.child(responderAssignedPath).get()).exists;
+      if (!mounted) return;
+      final existsInProg = (await dbRef.child(responderInProgressPath).get()).exists;
+      if (!mounted) return;
+      final existsCompleted = (await dbRef.child(responderCompletedPath).get()).exists;
+      if (alreadyFlagged || existsAssigned || existsInProg || existsCompleted) {
         if (!mounted) return;
         setState(() {
           _isSending = false;
@@ -476,7 +521,16 @@ class _AnsweredViewDetailsState extends State<AnsweredViewDetails> {
         'citizenLongitude': widget.citizenLongitude,
       };
 
-      await dbRef.child(path).set(taskData);
+      // Atomic multi-path update: create responder task + set durable flag
+      final Map<String, dynamic> updates = {
+        responderAssignedPath: taskData,
+        '$officerFlagBase/sendDetails': true,
+        '$officerFlagBase/sentAt': ServerValue.timestamp,
+      };
+      if ((widget.officerId ?? '').isNotEmpty) {
+        updates['$officerFlagBase/sentBy'] = widget.officerId;
+      }
+      await dbRef.update(updates);
 
       if (!mounted) return;
       setState(() {

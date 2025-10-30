@@ -37,6 +37,7 @@ class StorageService {
     required String station,
     required String callId,
     String? responder,
+    void Function(double progress)? onProgress,
   }) {
     final sanitizedStation = _sanitizePathSegment(
       station.isEmpty ? 'unknown_station' : station,
@@ -57,6 +58,7 @@ class StorageService {
         'uploadedAt': DateTime.now().toIso8601String(),
         'type': 'incident',
       }),
+      onProgress: onProgress,
     );
   }
 
@@ -64,9 +66,21 @@ class StorageService {
     required File file,
     required String storagePath,
     SettableMetadata? metadata,
+    void Function(double progress)? onProgress,
   }) async {
     final Reference ref = _storage.ref().child(storagePath);
     final UploadTask uploadTask = ref.putFile(file, metadata);
+
+    if (onProgress != null) {
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        final total = snapshot.totalBytes;
+        if (total > 0) {
+          final progress = snapshot.bytesTransferred / total;
+          onProgress(progress.clamp(0.0, 1.0));
+        }
+      });
+    }
+
     final TaskSnapshot snapshot = await uploadTask.whenComplete(() {});
     return snapshot.ref.getDownloadURL();
   }

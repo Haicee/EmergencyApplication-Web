@@ -1,13 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
-import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_database/firebase_database.dart';
-import '../services/storage_service.dart';
+
 import '../models/station.dart';
 import '../screens/officer_map_screen.dart';
+import '../services/storage_service.dart';
 
 class InProgressDetailsPage extends StatelessWidget {
   final Map<String, dynamic> taskData;
@@ -615,12 +617,127 @@ class _ResponderReportSection extends StatefulWidget {
   State<_ResponderReportSection> createState() => _ResponderReportSectionState();
 }
 
+class _IncidentAttachment {
+  const _IncidentAttachment({
+    required this.url,
+    this.id,
+    this.uploadedAt,
+    this.isLegacy = false,
+  });
+
+  final String url;
+  final String? id;
+  final int? uploadedAt;
+  final bool isLegacy;
+
+  String get key => id ?? (isLegacy ? 'legacy_$url' : url);
+}
+
+int? _normalizeTimestamp(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is int) return raw;
+  if (raw is double) return raw.toInt();
+  if (raw is String) {
+    final trimmed = raw.trim();
+    final asInt = int.tryParse(trimmed);
+    if (asInt != null) return asInt;
+    try {
+      final parsed = DateTime.parse(trimmed);
+      return parsed.millisecondsSinceEpoch;
+    } catch (_) {}
+  }
+  if (raw is Map) {
+    final seconds = raw['seconds'];
+    final nanos = raw['nanoseconds'] ?? raw['nanos'];
+    if (seconds is int) {
+      final base = seconds * 1000;
+      if (nanos is int) {
+        return base + (nanos / 1e6).round();
+      }
+      return base;
+    }
+  }
+  return null;
+}
+
+List<_IncidentAttachment> _parseIncidentAttachments(dynamic raw) {
+  final attachments = <_IncidentAttachment>[];
+  if (raw is Map) {
+    raw.forEach((key, value) {
+      final id = key.toString();
+      if (value is Map) {
+        final url = (value['url'] ?? value['image'] ?? '').toString().trim();
+        if (url.isEmpty) return;
+        attachments.add(
+          _IncidentAttachment(
+            url: url,
+            id: id,
+            uploadedAt: _normalizeTimestamp(value['uploadedAt'] ?? value['uploaded_at']),
+          ),
+        );
+      } else if (value != null) {
+        final url = value.toString().trim();
+        if (url.isEmpty) return;
+        attachments.add(
+          _IncidentAttachment(
+            url: url,
+            id: id,
+          ),
+        );
+      }
+    });
+  } else if (raw is List) {
+    for (var i = 0; i < raw.length; i++) {
+      final value = raw[i];
+      final id = i.toString();
+      if (value is Map) {
+        final url = (value['url'] ?? value['image'] ?? '').toString().trim();
+        if (url.isEmpty) continue;
+        attachments.add(
+          _IncidentAttachment(
+            url: url,
+            id: id,
+            uploadedAt: _normalizeTimestamp(value['uploadedAt'] ?? value['uploaded_at']),
+          ),
+        );
+      } else if (value != null) {
+        final url = value.toString().trim();
+        if (url.isEmpty) continue;
+        attachments.add(
+          _IncidentAttachment(
+            url: url,
+            id: id,
+          ),
+        );
+      }
+    }
+  } else if (raw is String) {
+    final url = raw.trim();
+    if (url.isNotEmpty) {
+      attachments.add(_IncidentAttachment(url: url, isLegacy: true));
+    }
+  }
+
+  attachments.sort((a, b) {
+    final aTs = a.uploadedAt ?? 0;
+    final bTs = b.uploadedAt ?? 0;
+    if (aTs == bTs) {
+      return a.url.compareTo(b.url);
+    }
+    return aTs.compareTo(bTs);
+  });
+
+  return attachments;
+}
+
 class _ResponderReportSectionState extends State<_ResponderReportSection> {
   late final TextEditingController _controller;
   bool _isEditing = false;
-  File? _imageFile;
+  final List<File> _pendingImages = [];
+  final List<_IncidentAttachment> _uploadedImages = [];
+  final Map<String, double?> _uploadProgress = {};
   bool _isUploading = false;
-  String? _uploadedImageUrl;
+  bool _hasLoadedInitialImages = false;
 
   Future<bool> _ensureCameraPermission() async {
     final status = await Permission.camera.status;
@@ -654,8 +771,47 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
     return false;
   }
 
-  Future<void> _uploadIncidentImage() async {
-    if (_imageFile == null) return;
+  Future<void> _loadExistingAttachments() async {
+    final station = (widget.taskData['station'] ?? '').toString();
+    final callId = (widget.taskData['callId'] ?? '').toString();
+
+    if (station.isEmpty || callId.isEmpty) {
+      return;
+    }
+
+    try {
+      final ref = FirebaseDatabase.instance
+          .ref('Responders/$station/ReceivedCallDetails/InProgress/$callId/attachments');
+      final snap = await ref.get();
+      if (!mounted) return;
+
+      final parsed = _parseIncidentAttachments(snap.value)
+          .where((att) => att.url.isNotEmpty)
+          .toList();
+
+      setState(() {
+        _uploadedImages
+          ..clear()
+          ..addAll(parsed);
+        _hasLoadedInitialImages = true;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load attachments: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _uploadIncidentImage(File file) async {
+    final tempKey = file.path;
+
+    setState(() {
+      _pendingImages.add(file);
+      _uploadProgress[tempKey] = 0;
+      _isUploading = true;
+    });
 
     final station = (widget.taskData['station'] ?? '').toString();
     final callId = (widget.taskData['callId'] ?? '').toString();
@@ -667,32 +823,61 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
           const SnackBar(content: Text('Missing station or callId; cannot upload image.')),
         );
       }
+      setState(() {
+        _pendingImages.remove(file);
+        _uploadProgress.remove(tempKey);
+        _isUploading = _pendingImages.isNotEmpty || _uploadProgress.isNotEmpty;
+      });
       return;
     }
 
-    setState(() {
-      _isUploading = true;
-    });
-
     try {
       final url = await StorageService().uploadResponderIncidentImage(
-        file: _imageFile!,
+        file: file,
         station: station,
         callId: callId,
         responder: responder,
+        onProgress: (progress) {
+          if (!mounted) return;
+          setState(() {
+            _uploadProgress[tempKey] = progress;
+          });
+        },
       );
 
       final ref = FirebaseDatabase.instance
           .ref('Responders/$station/ReceivedCallDetails/InProgress/$callId');
+      final attachmentsRef = ref.child('attachments');
 
-      await ref.update({
-        'imageAttached': url,
-        'imageUploadedAt': ServerValue.timestamp,
-      });
+      final newEntry = {
+        'url': url,
+        'uploadedAt': ServerValue.timestamp,
+        if (responder.isNotEmpty) 'responder': responder,
+      };
+
+      final pushKey = attachmentsRef.push().key;
+      if (pushKey == null) {
+        throw Exception('Failed to create attachment key.');
+      }
+
+      await attachmentsRef.child(pushKey).set(newEntry);
+
+      await ref.child('imageAttached').set(url);
+      await ref.child('imageUploadedAt').set(ServerValue.timestamp);
 
       if (mounted) {
         setState(() {
-          _uploadedImageUrl = url;
+          _pendingImages.remove(file);
+          _uploadProgress.remove(tempKey);
+          _uploadedImages.add(
+            _IncidentAttachment(
+              url: url,
+              id: pushKey,
+              uploadedAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+          );
+          _uploadedImages.sort((a, b) => (a.uploadedAt ?? 0).compareTo(b.uploadedAt ?? 0));
+          _isUploading = _pendingImages.isNotEmpty || _uploadProgress.isNotEmpty;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Incident photo uploaded successfully.')),
@@ -707,7 +892,9 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
     } finally {
       if (mounted) {
         setState(() {
-          _isUploading = false;
+          _pendingImages.remove(file);
+          _uploadProgress.remove(tempKey);
+          _isUploading = _pendingImages.isNotEmpty || _uploadProgress.isNotEmpty;
         });
       }
     }
@@ -721,9 +908,27 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
         .toString();
     _controller = TextEditingController(text: initialText);
 
+    final existingAttachments = _parseIncidentAttachments(widget.taskData['attachments'])
+        .where((att) => att.url.isNotEmpty)
+        .toList();
+    _uploadedImages.addAll(existingAttachments);
+
     final existingImage = (widget.taskData['imageAttached'] ?? '').toString().trim();
     if (existingImage.isNotEmpty && existingImage.toLowerCase() != 'image attached') {
-      _uploadedImageUrl = existingImage;
+      final alreadyIncluded = existingAttachments.any((att) => att.url == existingImage);
+      if (!alreadyIncluded) {
+        _uploadedImages.add(
+          _IncidentAttachment(url: existingImage, isLegacy: true),
+        );
+      }
+    }
+
+    if (_uploadedImages.isNotEmpty) {
+      _uploadedImages.sort((a, b) => (a.uploadedAt ?? 0).compareTo(b.uploadedAt ?? 0));
+      _hasLoadedInitialImages = true;
+    } else {
+      // Lazily fetch attachments from DB if not provided in taskData.
+      _loadExistingAttachments();
     }
 
     // If initial snapshot did not include description, try to fetch it from DB once.
@@ -759,13 +964,16 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
         return;
       }
 
-      final picked = await ImagePicker().pickImage(source: ImageSource.camera, preferredCameraDevice: CameraDevice.rear);
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.rear,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
+      );
       if (picked != null) {
-        setState(() {
-          _imageFile = File(picked.path);
-          _uploadedImageUrl = null;
-        });
-        await _uploadIncidentImage();
+        final file = File(picked.path);
+        await _uploadIncidentImage(file);
       }
     } catch (e) {
       if (mounted) {
@@ -774,6 +982,142 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
         );
       }
     }
+  }
+
+  Future<void> _pickFromGallery() async {
+    try {
+      final picked = await ImagePicker().pickMultiImage(
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
+      );
+      if (picked.isEmpty) return;
+
+      for (final xfile in picked) {
+        final file = File(xfile.path);
+        await _uploadIncidentImage(file);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick images: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeAttachment(_IncidentAttachment attachment) async {
+    final station = (widget.taskData['station'] ?? '').toString();
+    final callId = (widget.taskData['callId'] ?? '').toString();
+
+    if (station.isEmpty || callId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Missing station or callId; cannot remove attachment.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _uploadedImages.removeWhere((att) => att.key == attachment.key);
+    });
+
+    try {
+      final baseRef = FirebaseDatabase.instance
+          .ref('Responders/$station/ReceivedCallDetails/InProgress/$callId');
+
+      if (attachment.id != null && !attachment.isLegacy) {
+        await baseRef.child('attachments/${attachment.id}').remove();
+      }
+
+      if (_uploadedImages.isEmpty) {
+        await baseRef.child('imageAttached').remove();
+        await baseRef.child('imageUploadedAt').remove();
+      } else {
+        final sorted = List<_IncidentAttachment>.from(_uploadedImages)
+          ..sort((a, b) => (b.uploadedAt ?? 0).compareTo(a.uploadedAt ?? 0));
+        final latest = sorted.first;
+        await baseRef.child('imageAttached').set(latest.url);
+        await baseRef.child('imageUploadedAt').set(latest.uploadedAt ?? ServerValue.timestamp);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Attachment removed.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove attachment: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildAttachmentGrid() {
+    final cards = <Widget>[
+      for (final file in _pendingImages)
+        _PendingAttachmentCard(
+          file: file,
+          progress: _uploadProgress[file.path],
+        ),
+      for (final attachment in _uploadedImages)
+        _UploadedAttachmentCard(
+          attachment: attachment,
+          onRemove: () => _removeAttachment(attachment),
+        ),
+    ];
+
+    if (cards.isEmpty && (_isUploading || !_hasLoadedInitialImages)) {
+      return Container(
+        height: 120,
+        alignment: Alignment.center,
+        child: const CircularProgressIndicator(),
+      );
+    }
+
+    if (cards.isEmpty) {
+      return Container(
+        height: 150,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[400]!),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.photo_library_outlined, color: Colors.grey[600], size: 40),
+            const SizedBox(height: 8),
+            Text('No attachments yet.', style: TextStyle(color: Colors.grey[800])),
+          ],
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth > 600
+            ? 4
+            : constraints.maxWidth > 400
+                ? 3
+                : 2;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1,
+          ),
+          itemCount: cards.length,
+          itemBuilder: (context, index) => cards[index],
+        );
+      },
+    );
   }
 
   void _saveReport() {
@@ -858,51 +1202,163 @@ class _ResponderReportSectionState extends State<_ResponderReportSection> {
                   ),
                 ),
           const SizedBox(height: 16),
-          GestureDetector(
-            onTap: _openCamera,
-            child: Container(
-              height: 150,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey[400]!),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _openCamera,
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('Camera'),
+                ),
               ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (_imageFile != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(_imageFile!, fit: BoxFit.cover),
-                    )
-                  else if (_uploadedImageUrl != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(_uploadedImageUrl!, fit: BoxFit.cover),
-                    )
-                  else
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.camera_alt, color: Colors.grey[600], size: 40),
-                        const SizedBox(height: 8),
-                        Text('Add Photo', style: TextStyle(color: Colors.grey[800])),
-                      ],
-                    ),
-                  if (_isUploading)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.4),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Center(
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
-                    ),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickFromGallery,
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Gallery'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildAttachmentGrid(),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingAttachmentCard extends StatelessWidget {
+  final File file;
+  final double? progress;
+
+  const _PendingAttachmentCard({required this.file, this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveProgress = progress != null ? progress!.clamp(0.0, 1.0) : null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[400]!),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.file(
+              file,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) => _AttachmentErrorPlaceholder(
+                message: 'Preview unavailable',
               ),
             ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.45),
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                const SizedBox(height: 12),
+                Text(
+                  effectiveProgress != null
+                      ? '${(effectiveProgress * 100).clamp(0, 100).toStringAsFixed(0)}%'
+                      : 'Uploading...',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UploadedAttachmentCard extends StatelessWidget {
+  final _IncidentAttachment attachment;
+  final VoidCallback onRemove;
+
+  const _UploadedAttachmentCard({required this.attachment, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              attachment.url,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) => const _AttachmentErrorPlaceholder(
+                message: 'Failed to load',
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.55),
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  splashRadius: 20,
+                  icon: const Icon(Icons.close, size: 18, color: Colors.white),
+                  onPressed: onRemove,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentErrorPlaceholder extends StatelessWidget {
+  final String message;
+  const _AttachmentErrorPlaceholder({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.grey[300],
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.broken_image_outlined, color: Colors.grey[700], size: 36),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w600, fontSize: 12),
           ),
         ],
       ),

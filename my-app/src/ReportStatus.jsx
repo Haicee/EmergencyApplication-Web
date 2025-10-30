@@ -298,6 +298,49 @@ export default function ReportStatus() {
       const hasAttachment = trimmedAttachment && !['not provided', 'n/a', 'none', 'null'].includes(attachmentLower);
       const attachmentUrl = hasAttachment && isLikelyHttpUrl(trimmedAttachment) ? trimmedAttachment : '';
 
+      const attachmentUrls = (() => {
+        const urls = [];
+        const addUrl = (u) => {
+          const s = (u || '').toString().trim();
+          if (isLikelyHttpUrl(s) && !urls.includes(s)) urls.push(s);
+        };
+        const fromAny = (v) => {
+          if (typeof v === 'string') {
+            // Split on common separators in case multiple URLs are packed into one string
+            const parts = v.split(/[\s,;|]+/).filter(Boolean);
+            parts.forEach(addUrl);
+          } else if (v && typeof v === 'object') {
+            // Common possible fields written by different clients
+            const candidates = [v.url, v.downloadURL, v.imageUrl, v.link, v.href, v.src];
+            candidates.forEach(addUrl);
+          }
+        };
+        const traverse = (node, depth = 0) => {
+          if (!node || depth > 5) return; // avoid pathological cycles
+          if (typeof node === 'string') {
+            fromAny(node);
+            return;
+          }
+          if (Array.isArray(node)) {
+            node.forEach((item) => traverse(item, depth + 1));
+            return;
+          }
+          if (typeof node === 'object') {
+            fromAny(node);
+            Object.values(node).forEach((val) => traverse(val, depth + 1));
+          }
+        };
+
+        const src = obj.attachments;
+        traverse(src);
+
+        // Also merge legacy single field if present (string may also contain multiple)
+        if (trimmedAttachment) fromAny(trimmedAttachment);
+        if (attachmentUrl) addUrl(attachmentUrl);
+
+        return urls;
+      })();
+
       return {
         callId,
         callerName: ensureValue(obj.callerName || obj.caller || obj.name),
@@ -313,6 +356,7 @@ export default function ReportStatus() {
         citizenLongitude: obj.citizenLongitude ?? obj.longitude ?? '',
         imageAttached: hasAttachment ? trimmedAttachment : 'Not provided',
         imageAttachmentUrl: attachmentUrl,
+        attachmentUrls,
         callDuration: formatDuration(obj.answeredAt, obj.endedAt) || ensureValue(obj.callDuration || obj.duration),
         status: titleCase(obj.status || 'completed'),
         station,
@@ -509,7 +553,30 @@ export default function ReportStatus() {
                     </div>
                     <div>
                       <h4 className="text-xs sm:text-sm font-semibold text-blue-600 uppercase tracking-wide">Attachment</h4>
-                      {viewReport.imageAttachmentUrl && !attachmentError ? (
+                      {Array.isArray(viewReport.attachmentUrls) && viewReport.attachmentUrls.length > 0 ? (
+                        <div className="mt-2 sm:mt-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {viewReport.attachmentUrls.map((url, idx) => (
+                              <div key={idx} className="bg-slate-100 border border-blue-100 rounded-xl overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => setAttachmentPreviewUrl(url)}
+                                  className="w-full h-40 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                  aria-label={`Open attachment ${idx + 1}`}
+                                >
+                                  <img
+                                    src={url}
+                                    alt={`Attachment ${idx + 1}`}
+                                    className="w-full h-full object-contain bg-white"
+                                    loading="lazy"
+                                  />
+                                </button>
+                                
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : viewReport.imageAttachmentUrl && !attachmentError ? (
                         <div className="mt-2 sm:mt-3 space-y-3">
                           <button
                             type="button"

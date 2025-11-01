@@ -220,3 +220,27 @@ This project is licensed under the ISC License.
 ## 📞 Support
 
 For support and questions, please contact the development team. 
+
+
+
+
+🔄 Update Process
+To update Frontend:
+bash
+cd my-app
+npm run build
+firebase deploy --only hosting
+To update Backend:
+bash
+cd backend
+docker build -t asia-southeast1-docker.pkg.dev/resmeapp-1/cloud-run-source-deploy/resme-backend .
+docker push asia-southeast1-docker.pkg.dev/resmeapp-1/cloud-run-source-deploy/resme-backend
+gcloud run deploy resme-backend --image asia-southeast1-docker.pkg.dev/resmeapp-1/cloud-run-source-deploy/resme-backend --region asia-southeast1
+📊 Summary
+Component	Technology	URL	Purpose
+Frontend	React + Firebase Hosting	https://resmeapp-1.web.app	User interface (runs in browser)
+Backend	Express + Cloud Run + Docker	https://resme-backend-984771585091.asia-southeast1.run.app	API server (handles requests)
+Database	Firebase Realtime Database	resmeapp-1.firebaseio.com	Data storage
+Official URL for users: https://resmeapp-1.web.app (the frontend)
+
+The backend URL is only used internally by the frontend code!

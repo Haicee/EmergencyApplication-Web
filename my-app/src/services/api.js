@@ -1,4 +1,22 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+// backend URL (Cloud Run using docker container). 
+// This is the URL that will be used to make API requests to the backend.
+// It is set to the Cloud Run service URL.
+// Try daw if functional
+
+const API_BASE_URL = 'https://resme-backend-984771585091.asia-southeast1.run.app/api';
+
+// Firebase Functions URL (for production)
+// const API_BASE_URL = 'https://us-central1-resme-backend.cloudfunctions.net/api';
+
+// Firebase Hosting URL (for production)
+// const API_BASE_URL = 'https://resme-backend-984771585091.asia-southeast1.run.app/api';
+
+// Firebase Functions URL (for development)
+// const API_BASE_URL = 'http://localhost:5001/resme-backend/us-central1/api';
+
+// Localhost URL (for development)
+// const API_BASE_URL = 'http://localhost:5000/api';
+
 
 class ApiService {
   constructor() {

@@ -139,6 +139,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   // Connectivity status
   bool _isOnline = true;
   StreamSubscription? _connectivitySubscription;
+  
+  // Routing information for display
+  double? _lastRouteDistance;
+  double? _lastRouteDuration;
   bool _showConnectivityBanner = false;
   Timer? _connectivityBannerTimer;
 
@@ -1126,6 +1130,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               username: widget.username,
               callId: callId,
               station: stationName,
+              distance: _lastRouteDistance,
+              duration: _lastRouteDuration,
             ),
           ),
         );
@@ -1265,6 +1271,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               username: widget.username,
               callId: callId,
               station: stationName,
+              distance: _lastRouteDistance,
+              duration: _lastRouteDuration,
             ),
           ),
         );
@@ -1362,24 +1370,88 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Future<Station?> _findNearestStation(Position userLocation, List<Station> stations) async {
-    Station? nearestStation;
-    double minDistance = double.infinity;
-
-    for (var station in stations) {
-      double distance = Geolocator.distanceBetween(
-        userLocation.latitude,
-        userLocation.longitude,
-        station.latitude,
-        station.longitude,
+    try {
+      debugPrint('🔍 Finding nearest station using hybrid routing...');
+      
+      // Use hybrid routing from offline emergency service
+      final offlineService = OfflineEmergencyService();
+      final nearestStationMap = await offlineService.findNearestStationHybrid(
+        userLat: userLocation.latitude,
+        userLng: userLocation.longitude,
       );
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestStation = station;
+      
+      if (nearestStationMap != null) {
+        // Find matching Station object
+        Station? matchedStation = stations.firstWhere(
+          (s) => s.name == nearestStationMap['name'],
+          orElse: () => stations.first,
+        );
+        
+        // Log the result and store routing data
+        if (nearestStationMap.containsKey('routeDistance')) {
+          debugPrint('✅ Found nearest station by OSRM route: ${matchedStation.name}');
+          debugPrint('   Route distance: ${nearestStationMap['routeDistance'].toStringAsFixed(2)} km');
+          debugPrint('   Route duration: ${nearestStationMap['routeDuration'].toStringAsFixed(1)} min');
+          
+          // Store routing data for ConnectingPage
+          _lastRouteDistance = nearestStationMap['routeDistance'];
+          _lastRouteDuration = nearestStationMap['routeDuration'];
+        } else if (nearestStationMap.containsKey('straightLineDistance')) {
+          debugPrint('✅ Found nearest station by Haversine: ${matchedStation.name}');
+          debugPrint('   Straight-line distance: ${nearestStationMap['straightLineDistance'].toStringAsFixed(2)} km');
+          
+          // Store straight-line distance
+          _lastRouteDistance = nearestStationMap['straightLineDistance'];
+          _lastRouteDuration = null; // No duration for Haversine
+        }
+        
+        return matchedStation;
       }
-    }
+      
+      // Fallback to original Haversine method if hybrid fails
+      debugPrint('⚠️ Hybrid routing failed, using fallback Haversine');
+      Station? nearestStation;
+      double minDistance = double.infinity;
 
-    return nearestStation;
+      for (var station in stations) {
+        double distance = Geolocator.distanceBetween(
+          userLocation.latitude,
+          userLocation.longitude,
+          station.latitude,
+          station.longitude,
+        );
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          nearestStation = station;
+        }
+      }
+
+      return nearestStation;
+      
+    } catch (e) {
+      debugPrint('❌ Error in _findNearestStation: $e');
+      
+      // Final fallback to simple Haversine
+      Station? nearestStation;
+      double minDistance = double.infinity;
+
+      for (var station in stations) {
+        double distance = Geolocator.distanceBetween(
+          userLocation.latitude,
+          userLocation.longitude,
+          station.latitude,
+          station.longitude,
+        );
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          nearestStation = station;
+        }
+      }
+
+      return nearestStation;
+    }
   }
 
   void _onTapUp(TapUpDetails details) {

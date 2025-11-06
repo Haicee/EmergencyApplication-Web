@@ -12,9 +12,18 @@ class ConnectingPage extends StatefulWidget
     final String username;
     final String callId; // Add callId parameter
     final String? station; // Add station parameter
+    final double? distance; // Optional: distance to station in km
+    final double? duration; // Optional: estimated duration in minutes
 
 
-    const ConnectingPage({Key? key, required this.username, required this.callId, this.station}) : super(key: key);
+    const ConnectingPage({
+      Key? key, 
+      required this.username, 
+      required this.callId, 
+      this.station,
+      this.distance,
+      this.duration,
+    }) : super(key: key);
 
     @override
     _ConnectingPageState createState() => _ConnectingPageState();
@@ -145,6 +154,28 @@ class _ConnectingPageState extends State<ConnectingPage>
       // Best-effort cancel any ongoing vibration
       try { Vibration.cancel(); } catch (_) {}
     }
+
+    String _buildDistanceInfo() {
+      List<String> parts = [];
+      
+      if (widget.distance != null) {
+        if (widget.distance! < 1.0) {
+          parts.add('${(widget.distance! * 1000).toStringAsFixed(0)} m away');
+        } else {
+          parts.add('${widget.distance!.toStringAsFixed(2)} km away');
+        }
+      }
+      
+      if (widget.duration != null) {
+        if (widget.duration! < 1.0) {
+          parts.add('< 1 min');
+        } else {
+          parts.add('~${widget.duration!.toStringAsFixed(0)} min');
+        }
+      }
+      
+      return parts.join(' • ');
+    }
     
     @override
     Widget build(BuildContext context)
@@ -190,13 +221,29 @@ class _ConnectingPageState extends State<ConnectingPage>
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      widget.station != null ? 'Connecting to the station...' : 'Please try again later...',
+                      widget.station != null 
+                        ? 'Connecting to ${widget.station}...' 
+                        : 'Please try again later...',
                       style: const TextStyle(
                         color: Color.fromARGB(255, 255, 255, 255),
                         fontSize: 22,
                         fontWeight: FontWeight.w500,
                       ),
+                      textAlign: TextAlign.center,
                     ),
+                    // Show distance and duration if available
+                    if (widget.distance != null || widget.duration != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _buildDistanceInfo(),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                     const Spacer(flex: 2),
                     Padding(
                       padding: const EdgeInsets.only(bottom: 60.0),

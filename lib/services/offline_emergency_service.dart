@@ -1,3 +1,5 @@
+// Hybrid routing system: OSRM for accurate route-based distance, Haversine as fallback
+
 import 'dart:async';
 import 'dart:io' show Platform, SocketException;
 import 'dart:convert';
@@ -12,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
+import 'routing_service.dart';
 
 class OfflineEmergencyService {
   static final OfflineEmergencyService _instance = OfflineEmergencyService._internal();
@@ -303,6 +306,128 @@ class OfflineEmergencyService {
 
   double _degreesToRadians(double degrees) {
     return degrees * (pi / 180);
+  }
+
+  /// HYBRID ROUTING: Find nearest station using OSRM routing (online) or Haversine (offline)
+  /// This method intelligently chooses between accurate route-based distance and straight-line distance
+  Future<Map<String, dynamic>?> findNearestStationHybrid({
+    required double userLat,
+    required double userLng,
+    bool forceHaversine = false,
+  }) async {
+    try {
+      List<Map<String, dynamic>> stations = await getCachedStations();
+      
+      if (stations.isEmpty) {
+        debugPrint('❌ No cached station data available');
+        return null;
+      }
+
+      debugPrint('🔍 Finding nearest station using hybrid routing...');
+      
+      // Check if we should try OSRM routing
+      bool shouldUseRouting = !forceHaversine;
+      
+      if (shouldUseRouting) {
+        // Check internet connectivity quality
+        final connectivity = await checkInternetConnectivityWithQuality();
+        bool hasGoodConnection = connectivity['hasInternet'] && 
+                                 (connectivity['quality'] == 'good' || connectivity['quality'] == 'fair');
+        
+        if (hasGoodConnection) {
+          debugPrint('✅ Good internet connection detected, using OSRM routing');
+          
+          // Try OSRM routing first
+          final routingService = RoutingService();
+          final nearestByRoute = await routingService.findNearestStationByRoute(
+            userLat: userLat,
+            userLng: userLng,
+            stations: stations,
+            maxStationsToCheck: 10, // Check top 10 closest stations
+          );
+          
+          if (nearestByRoute != null) {
+            debugPrint('✅ Found nearest station by OSRM route: ${nearestByRoute['name']}');
+            debugPrint('   Route distance: ${nearestByRoute['routeDistance'].toStringAsFixed(2)} km');
+            debugPrint('   Route duration: ${nearestByRoute['routeDuration'].toStringAsFixed(1)} min');
+            return nearestByRoute;
+          } else {
+            debugPrint('⚠️ OSRM routing failed, falling back to Haversine');
+          }
+        } else {
+          debugPrint('⚠️ Poor/no internet connection, using Haversine fallback');
+        }
+      }
+      
+      // Fallback to Haversine (straight-line distance)
+      debugPrint('📏 Using Haversine formula for straight-line distance');
+      final nearestByHaversine = await findNearestStation(userLat, userLng);
+      
+      if (nearestByHaversine != null) {
+        // Calculate and add straight-line distance info
+        double stationLat = double.parse(nearestByHaversine['latitude'].toString());
+        double stationLng = double.parse(nearestByHaversine['longitude'].toString());
+        double straightLineDistance = _calculateDistance(userLat, userLng, stationLat, stationLng);
+        
+        nearestByHaversine['straightLineDistance'] = straightLineDistance;
+        nearestByHaversine['distanceMethod'] = 'haversine';
+        
+        debugPrint('✅ Found nearest station by Haversine: ${nearestByHaversine['name']}');
+        debugPrint('   Straight-line distance: ${straightLineDistance.toStringAsFixed(2)} km');
+      }
+      
+      return nearestByHaversine;
+      
+    } catch (e) {
+      debugPrint('❌ Error in hybrid routing: $e');
+      // Final fallback to basic Haversine
+      return await findNearestStation(userLat, userLng);
+    }
+  }
+
+  /// Get route details between user and station (for display on map)
+  Future<Map<String, dynamic>?> getRouteToStation({
+    required double userLat,
+    required double userLng,
+    required Map<String, dynamic> station,
+  }) async {
+    try {
+      if (station['latitude'] == null || station['longitude'] == null) {
+        debugPrint('❌ Station coordinates not available');
+        return null;
+      }
+      
+      double stationLat = double.parse(station['latitude'].toString());
+      double stationLng = double.parse(station['longitude'].toString());
+      
+      // Check internet connectivity
+      final connectivity = await checkInternetConnectivityWithQuality();
+      if (!connectivity['hasInternet']) {
+        debugPrint('❌ No internet connection for routing');
+        return null;
+      }
+      
+      debugPrint('🗺️ Getting route to ${station['name']}...');
+      
+      final routingService = RoutingService();
+      final route = await routingService.getRoute(
+        startLat: userLat,
+        startLng: userLng,
+        endLat: stationLat,
+        endLng: stationLng,
+      );
+      
+      if (route != null) {
+        debugPrint('✅ Route retrieved: ${route['distance'].toStringAsFixed(2)} km, '
+                   '${route['duration'].toStringAsFixed(1)} min');
+      }
+      
+      return route;
+      
+    } catch (e) {
+      debugPrint('❌ Error getting route to station: $e');
+      return null;
+    }
   }
 
   /// Format emergency SMS message

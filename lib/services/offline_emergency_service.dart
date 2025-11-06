@@ -441,16 +441,16 @@ class OfflineEmergencyService {
     String timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     
     String message = '''🚨 EMERGENCY ALERT 🚨
+
 Location: $latitude, $longitude
-User: $userName
-Time: $timeStr
-Instruction: Copy the location and paste it on the map.''';
+Caller Name: $userName
+Time: $timeStr''';
 
     if (additionalInfo != null && additionalInfo.isNotEmpty) {
       message += '\nInfo: $additionalInfo';
     }
 
-    message += '\n- Emergency App';
+    message += '\n\n- ResMe App';
     
     return message;
   }

@@ -166,14 +166,6 @@ class _ConnectingPageState extends State<ConnectingPage>
         }
       }
       
-      if (widget.duration != null) {
-        if (widget.duration! < 1.0) {
-          parts.add('< 1 min');
-        } else {
-          parts.add('~${widget.duration!.toStringAsFixed(0)} min');
-        }
-      }
-      
       return parts.join(' • ');
     }
     
